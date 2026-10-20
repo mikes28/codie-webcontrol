@@ -2,8 +2,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 
-import { matchRobot, describePeripheral } from '../src/ble/scanner.js';
+import { matchRobot, describePeripheral, RobotScanner } from '../src/ble/scanner.js';
 import { normalizeAddress } from '../src/ble/noble.js';
 import { SERVICE_UUID } from '../src/ble/protocol.js';
 
@@ -76,6 +77,45 @@ test('az allowlist kizárja a többi robotot', () => {
 test('a MAC-only módban az allowlist elég a név nélkül is', () => {
   const filters = { ...FILTERS, macAllowlist: ['00:07:80:66:F0:DB'], macOnly: true };
   assert.equal(matchRobot({ address: '00078066F0DB', name: '' }, filters).match, true);
+});
+
+test('a MAC-only módban üres allowlist mellett semmi nem megy át', () => {
+  const filters = { ...FILTERS, macAllowlist: [], macOnly: true };
+  const verdict = matchRobot({ address: '00:07:80:66:F0:DB', name: 'Codie' }, filters);
+  assert.equal(verdict.match, false, 'üres allowlist mellett nincs engedélyezett cím');
+});
+
+test('a MAC-only módban a néven átmenő, de nem allowlistelt robot sem megy át', () => {
+  const filters = { ...FILTERS, macAllowlist: ['00:07:80:66:F0:DB'], macOnly: true };
+  const verdict = matchRobot({ address: '00:07:80:66:F0:DC', name: 'Codie' }, filters);
+  assert.equal(verdict.match, false);
+});
+
+test('a scanner nem akad meg, ha a BLE binding hibát jelez induláskor', async () => {
+  // A noble a startScanning promise-t a binding 'scanStart' eseményéből oldja fel,
+  // a BlueZ binding pedig a hibát 'warning' eseménybe teszi → a promise soha nem
+  // teljesülne. A scannernek viszont hibával kell kilépnie, nem akadnia meg.
+  class WarningNoble extends EventEmitter {
+    constructor() {
+      super();
+      this.state = 'poweredOn';
+    }
+
+    async startScanningAsync() {
+      setTimeout(() => this.emit('warning', 'startScanning failed: adapter not initialized'), 5);
+      return new Promise(() => {});
+    }
+
+    async stopScanningAsync() {
+      return new Promise(() => {});
+    }
+  }
+
+  const scanner = new RobotScanner({ noble: new WarningNoble(), filters: FILTERS });
+  await assert.rejects(
+    () => scanner.scan({ durationMs: 500 }),
+    /discovery nem indult el/,
+  );
 });
 
 test('a cím formázása egységes', () => {

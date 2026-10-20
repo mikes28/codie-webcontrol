@@ -31,8 +31,26 @@ export const COMMAND_NAMES = [
   'mic',
 ];
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+/**
+ * Számparaméter validálása.
+ *
+ * A `Number('abc')` → NaN, ami csendben 0-vá esne össze — egy hibás kérés így
+ * például 0 fokos, de balra forgó robotot eredményezne. Ezért a NaN hibát dob.
+ */
+function numberParam(value, name, { min, max, integer = false } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    const error = new Error(
+      `A "${name}" paraméternek véges számnak kell lennie (kapott: ${JSON.stringify(value)}).`,
+    );
+    error.status = 400;
+    throw error;
+  }
+  let result = parsed;
+  if (integer) result = Math.trunc(result);
+  if (min !== undefined) result = Math.max(min, result);
+  if (max !== undefined) result = Math.min(max, result);
+  return result;
 }
 
 /**
@@ -45,7 +63,7 @@ function clamp(value, min, max) {
 export async function runCommand(client, name, params = {}) {
   switch (name) {
     case 'beep': {
-      const ms = clamp(Math.trunc(Number(params.ms ?? 500)), 1, 10000);
+      const ms = numberParam(params.ms ?? 500, 'ms', { min: 1, max: 10000, integer: true });
       await client.beep(ms);
       return { action: 'beep', ms };
     }
@@ -67,7 +85,7 @@ export async function runCommand(client, name, params = {}) {
     }
     case 'ledSingle': {
       const color = String(params.color ?? 'green');
-      const index = Math.trunc(Number(params.index ?? 1));
+      const index = numberParam(params.index ?? 1, 'index', { min: 1, max: 12, integer: true });
       await client.ledSingle(color, index);
       return { action: 'ledSingle', color, index };
     }
@@ -76,18 +94,18 @@ export async function runCommand(client, name, params = {}) {
       return { action: 'ledsOff' };
     }
     case 'forward': {
-      const cm = clamp(Number(params.cm ?? 10), 0, MAX_DISTANCE_CM);
+      const cm = numberParam(params.cm ?? 10, 'cm', { min: 0, max: MAX_DISTANCE_CM });
       await client.driveDistance(Math.trunc(cm * 10), DRIVE_SPEED, DRIVE_SPEED);
       return { action: 'forward', cm };
     }
     case 'backward': {
-      const cm = clamp(Number(params.cm ?? 10), 0, MAX_DISTANCE_CM);
+      const cm = numberParam(params.cm ?? 10, 'cm', { min: 0, max: MAX_DISTANCE_CM });
       await client.driveDistance(Math.trunc(cm * 10), -DRIVE_SPEED, -DRIVE_SPEED);
       return { action: 'backward', cm };
     }
     case 'turn': {
-      const degrees = Number(params.degrees ?? 0);
-      const magnitude = Math.min(Math.abs(Math.trunc(degrees)), 360);
+      const degrees = numberParam(params.degrees ?? 0, 'degrees', { integer: true });
+      const magnitude = Math.min(Math.abs(degrees), 360);
       // pozitív fok = jobbra -> az API szerint jobbra = NEGATÍV speed
       const speed = degrees >= 0 ? -TURN_SPEED : TURN_SPEED;
       await client.driveTurn(magnitude, speed);

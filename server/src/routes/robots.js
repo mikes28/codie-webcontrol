@@ -11,6 +11,7 @@
 import { Router } from 'express';
 
 import { COMMAND_NAMES } from '../commands.js';
+import { resolveScanDuration } from '../ble/registry.js';
 
 function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -48,10 +49,7 @@ export function createRobotRouter({ registry, filters = {} }) {
   router.post(
     '/scan',
     asyncRoute(async (req, res) => {
-      const durationMs = Math.min(
-        Math.max(Number(req.body?.durationMs ?? filters.scanMs ?? 10000), 1000),
-        120000,
-      );
+      const durationMs = resolveScanDuration(req.body?.durationMs, filters.scanMs ?? 10000);
       const robots = await registry.scan({ durationMs });
       res.json({ robots, durationMs });
     }),

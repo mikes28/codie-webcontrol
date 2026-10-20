@@ -27,7 +27,9 @@ export function createApp({ registry, filters = {} }) {
 
   // eslint-disable-next-line no-unused-vars -- Express a 4 argumentum alapján ismeri
   app.use((error, req, res, next) => {
-    const status = error.status || 400;
+    // A validációs hibák 400-as státusszal jönnek (a parancsréteg jelöli őket),
+    // a BLE-hibák 503-zal, minden más (programozási hiba) 500.
+    const status = error.status || 500;
     if (status >= 500) console.error('[api]', error);
     res.status(status).json({ error: error.message || 'Ismeretlen hiba.' });
   });

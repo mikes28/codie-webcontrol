@@ -50,6 +50,16 @@ function list(env, name, fallback = []) {
 export function loadConfig(env = process.env) {
   const nameFilter = env.CODIE_ROBOT_NAME || 'Codie';
   const serviceUuids = list(env, 'CODIE_ROBOT_UUIDS', [SERVICE_UUID, ADVERTISED_ROBOT_UUID]);
+  const macAllowlist = list(env, 'CODIE_MAC_ALLOWLIST');
+  const macOnly = bool(env, 'CODIE_MAC_ONLY', false);
+
+  // MAC-only módban az allowlist az egyetlen szűrő — üres allowlist mellett ez
+  // néma hiba lenne (minden "Codie" átmenne), ezért az indulást elbuktatjuk.
+  if (macOnly && macAllowlist.length === 0) {
+    throw new Error(
+      'A CODIE_MAC_ONLY=1 beállításhoz kötelező a CODIE_MAC_ALLOWLIST is (üres allowlist mellett nincs mit engedélyezni).',
+    );
+  }
 
   return {
     port: num(env, 'PORT', 3000),
@@ -62,9 +72,9 @@ export function loadConfig(env = process.env) {
       /** Identity-szűrő: hirdetett service UUID-k, amiket a Codie visz. */
       serviceUuids,
       /** Opcionális MAC-allowlist: csak ezek a címek fogadhatók el. */
-      macAllowlist: list(env, 'CODIE_MAC_ALLOWLIST'),
+      macAllowlist,
       /** true => az allowlist önmagában is elég (név/UUID nélkül is elfogad). */
-      macOnly: bool(env, 'CODIE_MAC_ONLY', false),
+      macOnly,
       /** Alapértelmezett scan-idő (ms) — a robot ritkán hirdet, ezért ne legyen rövid. */
       scanMs: num(env, 'CODIE_SCAN_MS', 10000),
       connectTimeoutMs: num(env, 'CODIE_CONNECT_TIMEOUT_MS', 20000),

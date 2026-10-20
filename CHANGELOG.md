@@ -46,6 +46,39 @@ A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
   `finish()` helperrel), és a konzol nem sorban futtatta a parancsokat, illetve stdin-EOF-nal
   megszakította a futó scan-t (parancssor + a futó parancs megvárása kilépéskor).
 
+### Fixed (kód-review findings — a review 19 hibát jelzett, mind javítva)
+- **Ritmus/Morse időzítés (P0):** a `playRhythm` a Python `asyncio.sleep` másodperc-osztását
+  vette át, de a JS `sleep` ezredmásodpercet vár → a Morse és a beépített ritmusok 1000×-s
+  rövidebbek voltak a tervezettnél (a csipogások egybeolvadtak). Javítva + regressziós teszt.
+- **Scanner beragadás (P0):** a noble a `startScanning` promise-t a binding `scanStart`
+  eseményéből oldja fel, a BlueZ binding pedig a hibát `warning` eseménybe teszi → hiba
+  esetén a promise **soha nem teljesül**, és a scanner sora örökre megállt (minden későbbi
+  scan/connect néma kérésre sem válaszolt). Most időtartam-biztosított indítás/leállítás,
+  `warning`-ra azonnali hiba.
+- **Telemetria 2,5 mp-es stall (P0):** a `status()` a feszültséget is lekérdezte, ami ezen a
+  firmware-en **nem válaszol** → minden telemetria-kör 2,5 mp-et várt. A feszültség kikerült
+  a `status()`-ból (külön metódus maradt), és a robotok telemetriája párhuzamosan fut.
+- **Paraméter-validáció (P1):** a nem számértékű paraméter (`"abc"`) csendben 0-vá esett össze,
+  és egy hibás `turn` kérés **balra forgatta** a robotot. Most `400`-as hibát dob.
+- **HTTP státuszok (P1):** minden hiba 400 volt; most a validáció 400, a nem csatlakoztatott
+  robot 409, a BLE-hiba 503, a programozási hiba 500.
+- **MAC-only mód (P1):** üres allowlist mellett néma hiba volt (minden "Codie" átment); most
+  üres allowlist mellett semmi nem megy át, és a szerver induláskor elbuktatja a hibás
+  konfigurációt.
+- **Memóriaszivárgás (P1):** a `notifications` history korlátlan volt (a telemetria 5 mp-enként
+  növelte) → most a legutóbbi 100 bejegyzés marad meg.
+- **`_pending` szivárgás (P1):** sikertelen BLE write után a válasz-felfedező bejegyzés bent
+  maradt; most a `finally` mindig törli.
+- **Párhuzamos connect (P1):** két párhuzamos `connect` két klienst hozott létre ugyanahhoz a
+  címhez, és az árva kliens lekapcsolódása offline-ba tette a robotot. Most a műveletek
+  cím szerinti sorba állnak, és csak az aktuális kliens nullázza az állapotot.
+- **Duplázott események (P2):** egy lekapcsolódás 3 `robot` eseményt váltott ki; most egyet.
+- **Socket-események (P2):** a REST-en kiadott parancs eredménye is elment a socketre
+  (`command-result`), a `scan` esemény nem duplikálódik, és a frontend a scan után nem
+  veszíti el a listából a már ismert robotokat.
+- **Python `colorsys` paritás (P2):** a JS `%` megtartja a jelet, a Python nem → a hue-átváltás
+  most pontosan a Python `colorsys` viselkedését követi.
+
 ## [0.1.0] — 2026-07-07
 
 ### Added — a Codie BLE vezérlés első importálása

@@ -15,6 +15,17 @@ import { RobotScanner } from './scanner.js';
 import { normalizeAddress } from './noble.js';
 import { runCommand } from '../commands.js';
 
+/**
+ * A scan-idő normalizálása (ms): korlátok között, NaN nélkül.
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+export function resolveScanDuration(value, fallback = 10000) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1000), 120000);
+}
+
 export class RobotRegistry extends EventEmitter {
   /**
    * @param {{noble: object, filters: object, connectTimeout?: number,
@@ -34,6 +45,7 @@ export class RobotRegistry extends EventEmitter {
     this.filters = filters;
     this.scanner = scanner || new RobotScanner({ noble, filters });
     this._robots = new Map(); // address -> robot entry
+    this._operations = new Map(); // address -> művelet-lánc (connect/disconnect szerializálás)
     this._telemetryMs = telemetryMs;
     this._telemetryTimer = null;
     this._connectOptions = { timeout: connectTimeout, scanWindow, connectRetries, retryDelay };
@@ -77,9 +89,30 @@ export class RobotRegistry extends EventEmitter {
 
   // --- kapcsolat -------------------------------------------------------
 
+  /**
+   * Egy adott robot műveletei (connect/disconnect) sorba állnak, hogy két
+   * párhuzamos kérés ne hozzon létre két klienset ugyanahhoz a címhez.
+   */
+  _withLock(key, operation) {
+    const previous = this._operations.get(key) || Promise.resolve();
+    const current = previous.then(operation, operation);
+    this._operations.set(
+      key,
+      current.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return current;
+  }
+
   /** Csatlakozik egy robothoz (cím alapján). */
   async connect(address) {
     const key = normalizeAddress(address);
+    return this._withLock(key, () => this._connectRobot(key));
+  }
+
+  async _connectRobot(key) {
     const existing = this._robots.get(key);
     if (existing && existing.connected && existing.client?.isConnected) {
       return this.describe(key);
@@ -93,11 +126,13 @@ export class RobotRegistry extends EventEmitter {
     });
     client.on('disconnected', () => {
       const entry = this._robots.get(key);
-      if (entry) {
-        entry.connected = false;
-        entry.client = null;
-        this.emit('robot', this.describe(key));
-      }
+      // csak akkor nullázunk, ha ez a kliens a "hivatalos" — egy árva kliens
+      // (egy megszakadt párhuzamos connect után) ne tegye offline-ba a robotot
+      if (!entry || entry.client !== client) return;
+      entry.connected = false;
+      entry.client = null;
+      this.emit('robot', this.describe(key));
+      if (![...this._robots.values()].some((r) => r.connected)) this._stopTelemetry();
     });
 
     const entry = existing || {
@@ -116,9 +151,12 @@ export class RobotRegistry extends EventEmitter {
       await client.connect();
     } catch (error) {
       // a sikertelen kapcsolatot nem hagyjuk "félig" a registryben
-      entry.client = null;
-      entry.connected = false;
+      if (entry.client === client) {
+        entry.client = null;
+        entry.connected = false;
+      }
       this.emit('robot', this.describe(key));
+      if (!error.status) error.status = 503; // a robot nem érhető el (alvó / nincs rá)
       throw error;
     }
     entry.connected = true;
@@ -131,11 +169,18 @@ export class RobotRegistry extends EventEmitter {
   /** Lekapcsol egy robotot. */
   async disconnect(address) {
     const key = normalizeAddress(address);
+    return this._withLock(key, () => this._disconnectRobot(key));
+  }
+
+  async _disconnectRobot(key) {
     const entry = this._robots.get(key);
     if (!entry || !entry.client) return this.describe(key);
-    await entry.client.disconnect();
-    entry.connected = false;
-    entry.client = null;
+    const client = entry.client;
+    await client.disconnect();
+    if (entry.client === client) {
+      entry.connected = false;
+      entry.client = null;
+    }
     this.emit('robot', this.describe(key));
     if (![...this._robots.values()].some((r) => r.connected)) this._stopTelemetry();
     return this.describe(key);
@@ -179,7 +224,9 @@ export class RobotRegistry extends EventEmitter {
   async command(address, name, params = {}) {
     const client = this.clientFor(address);
     if (!client) {
-      throw new Error(`A ${normalizeAddress(address)} robot nincs csatlakoztatva.`);
+      const error = new Error(`A ${normalizeAddress(address)} robot nincs csatlakoztatva.`);
+      error.status = 409; // Conflict: a kérés érvényes, de a robot nincs rá
+      throw error;
     }
     const result = await runCommand(client, name, params);
     this.emit('command', { address: normalizeAddress(address), ...result });
@@ -205,16 +252,19 @@ export class RobotRegistry extends EventEmitter {
   }
 
   async _pollTelemetry() {
-    for (const entry of this._robots.values()) {
-      if (!entry.connected || !entry.client) continue;
-      try {
-        const status = await entry.client.status();
-        entry.telemetry = { ...status, updatedAt: Date.now() };
-        this.emit('telemetry', this.describe(entry.address));
-      } catch {
-        /* egy robot hibája ne szakítsa meg a többi telemetriát */
-      }
-    }
+    // párhuzamosan: egy lassú robot ne húzza maga után a többit
+    await Promise.all(
+      [...this._robots.values()].map(async (entry) => {
+        if (!entry.connected || !entry.client) return;
+        try {
+          const status = await entry.client.status();
+          entry.telemetry = { ...status, updatedAt: Date.now() };
+          this.emit('telemetry', this.describe(entry.address));
+        } catch {
+          /* egy robot hibája ne szakítsa meg a többi telemetriát */
+        }
+      }),
+    );
   }
 
   // --- leírás ----------------------------------------------------------

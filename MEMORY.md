@@ -38,8 +38,15 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
      a futó scan-t. Javítás: tiszta kilépés (`finish()`), parancssor (queue).
 - **Protokoll-paritás:** a JS portot a Python referenciával **bájtra bájtra** ellenőrző
   teszt (`server/test/parity.test.js` + `test/parity_probe.py`) védi az elcsúszás ellen.
+- **Kód-review (19 finding, mind javítva + regressziós teszttel):** a legkomolyabb három:
+  (1) a `playRhythm` a Python `asyncio.sleep` másodperc-osztását vette át → a Morse/ritmus
+  1000×-s rövidebb volt; (2) a noble a scan-promise-t a binding `scanStart` eseményéből oldja
+  fel, a BlueZ binding a hibát `warning`-ba teszi → **a scanner örökre beragadhatott** és minden
+  későbbi scan/connect néma kérésre sem válaszolt; (3) a `status()` a feszültségre várt, ami
+  ezen a firmware-en sosem jön → minden telemetria-kör 2,5 mp stall. A tanulság: a **portok**
+  (Python→JS) a legveszélyesebbek — az `asyncio.sleep` másodperc, a `setTimeout` ezredmásodperc.
 - **Hamis robot** (`server/test/fake-robot.js`): a teljes szoftverstack (scan → szűrés →
-  connect → parancs → telemetria → REST → socket.io) futtatható hardver nélkül — 45 teszt.
+  connect → parancs → telemetria → REST → socket.io) futtatható hardver nélkül — 60 teszt.
 - **Nyitott:** a robot élő, teljes körű (szenzor/LED/beep) igazolása a *valódi* hardveren —
   ehhez a robotnak ébren kell lennie.
 

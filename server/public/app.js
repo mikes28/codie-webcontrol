@@ -160,11 +160,13 @@ socket.on('robots', (payload) => {
 });
 
 socket.on('scan', (payload) => {
-  robots = payload.robots || [];
+  // a scan csak az aktuálisan hirdető robotokat tartalmazza — a már ismert
+  // (pl. csatlakoztatott) robotokat nem szabad kivenni a listából
+  for (const robot of payload.robots || []) upsertRobot(robot);
   renderRobots();
   els.scanBtn.disabled = false;
-  els.scanHint.textContent = `Keresés kész: ${robots.length} robot.`;
-  setStatus(robots.length ? `${robots.length} robot találva.` : 'Nem találtam robotot.');
+  els.scanHint.textContent = `Keresés kész: ${(payload.robots || []).length} robot.`;
+  setStatus((payload.robots || []).length ? `${payload.robots.length} robot találva.` : 'Nem találtam robotot.');
 });
 
 socket.on('robot', (robot) => {

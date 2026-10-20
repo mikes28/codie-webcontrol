@@ -97,6 +97,18 @@ test('a kétszeri connect nem töri el a kapcsolatot', async () => {
   assert.equal(battery.pct, 85);
 });
 
+test('a párhuzamos connect sem töri el a registry-t', async () => {
+  const { registry } = buildStack();
+  const [first, second] = await Promise.all([
+    registry.connect('00:07:80:66:F0:DB'),
+    registry.connect('00:07:80:66:F0:DB'),
+  ]);
+  assert.equal(first.connected, true);
+  assert.equal(second.connected, true);
+  const battery = await registry.command('00:07:80:66:F0:DB', 'battery', {});
+  assert.equal(battery.pct, 85, 'a robot parancsot fogad — a registry nem korrupt');
+});
+
 test('a telemetria a státuszból épül', async () => {
   const { registry } = buildStack();
   await registry.connect('00:07:80:66:F0:DB');

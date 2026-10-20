@@ -34,7 +34,13 @@ function fakeRegistry() {
     },
     command: async (address, name, params) => {
       calls.push(['command', address, name, params]);
-      if (name === 'nope') throw new Error('Ismeretlen parancs: nope');
+      if (name === 'nope') {
+        // a valós parancsréteg a validációs hibákat 400-as státusszal jelöli
+        const error = new Error('Ismeretlen parancs: nope');
+        error.status = 400;
+        throw error;
+      }
+      if (name === 'boom') throw new Error('belső hiba');
       return { action: name };
     },
   };
@@ -111,6 +117,17 @@ test('a hiba JSON-ban jön vissza', async () => {
     assert.equal(res.status, 400);
     const body = await res.json();
     assert.match(body.error, /Ismeretlen parancs/);
+  });
+});
+
+test('a nem validációs hiba 500-as státusszal jön', async () => {
+  await withServer(async ({ base }) => {
+    const res = await fetch(`${base}/api/robots/00:07:80:66:F0:DB/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'boom' }),
+    });
+    assert.equal(res.status, 500);
   });
 });
 

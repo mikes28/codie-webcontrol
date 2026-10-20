@@ -18,6 +18,9 @@
 import { normalizeAddress } from './noble.js';
 import * as p from './protocol.js';
 
+/** A BLE discovery indítás/leállítás időtartam-biztosítása. */
+const DISCOVERY_TIMEOUT_MS = 8000;
+
 /**
  * Tiszta szűrőfüggvény — egységesen tesztelhető.
  * @param {{address?: string, name?: string, serviceUuids?: string[]}} advertisement
@@ -40,12 +43,16 @@ export function matchRobot(advertisement, filters = {}) {
   if (uuidMatched) reasons.push('service-uuid');
 
   const allowlisted = allowlist.includes(address);
+  if (filters.macOnly) {
+    // MAC-only módban **csak** az allowlist számít: üres allowlistnál egy sem megy át.
+    if (allowlisted) reasons.push('allowlisted');
+    return { match: allowlisted, reasons };
+  }
   if (allowlist.length > 0 && !allowlisted) {
     return { match: false, reasons: ['not-allowlisted'] };
   }
   if (allowlist.length > 0) reasons.push('allowlisted');
 
-  if (filters.macOnly && allowlisted) return { match: true, reasons };
   if (nameMatched || uuidMatched) return { match: true, reasons };
   return { match: false, reasons };
 }
@@ -123,15 +130,11 @@ export class RobotScanner {
 
     this.noble.on('discover', onDiscover);
     try {
-      await this.noble.startScanningAsync([], true);
+      await this._startDiscovery();
       await sleep(durationMs);
     } finally {
       this.noble.removeListener('discover', onDiscover);
-      try {
-        await this.noble.stopScanningAsync();
-      } catch {
-        /* a discovery leállítása nem kritikus */
-      }
+      await this._stopDiscovery();
     }
 
     return [...found.values()]
@@ -168,7 +171,7 @@ export class RobotScanner {
 
     this.noble.on('discover', onDiscover);
     try {
-      await this.noble.startScanningAsync([], true);
+      await this._startDiscovery();
       const timer = setTimeout(() => resolveFound(null), durationMs);
       try {
         await found;
@@ -177,13 +180,64 @@ export class RobotScanner {
       }
     } finally {
       this.noble.removeListener('discover', onDiscover);
-      try {
-        await this.noble.stopScanningAsync();
-      } catch {
-        /* nem kritikus */
-      }
+      await this._stopDiscovery();
     }
     return peripheral;
+  }
+
+  /**
+   * A discovery elindítása **időtartam-biztosított**.
+   *
+   * A noble a `startScanning` promise-t a binding 'scanStart' eseményéből oldja fel,
+   * a BlueZ binding pedig a hibaüzenetet egy 'warning' eseménybe teszi (nem elutasítja a
+   * promise-t) → hiba esetén a promise soha nem teljesülne, és a scanner sora örökre
+   * megállna. Ezért: warning-ra azonnal bukunk, és van egy időtartam is.
+   */
+  async _startDiscovery() {
+    let timer = null;
+    let onWarning = null;
+    const warning = new Promise((_, reject) => {
+      onWarning = (message) => reject(new Error(`A BLE discovery nem indult el: ${message}`));
+      this.noble.on('warning', onWarning);
+    });
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`A BLE discovery indítása timeoutolt (${DISCOVERY_TIMEOUT_MS} ms).`)),
+        DISCOVERY_TIMEOUT_MS,
+      );
+    });
+    const start = this.noble.startScanningAsync([], true);
+    start.catch(() => {
+      /* a warning-ág kezeli; a race után ez már nem érdekes */
+    });
+    try {
+      await Promise.race([start, warning, timeout]);
+    } finally {
+      clearTimeout(timer);
+      if (onWarning) this.noble.removeListener('warning', onWarning);
+    }
+  }
+
+  /** A discovery leállítása — a hiba itt nem kritikus, de ne akadjon el. */
+  async _stopDiscovery() {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`A BLE discovery leállítása timeoutolt (${DISCOVERY_TIMEOUT_MS} ms).`)),
+        DISCOVERY_TIMEOUT_MS,
+      );
+    });
+    const stop = this.noble.stopScanningAsync();
+    stop.catch(() => {
+      /* nem kritikus */
+    });
+    try {
+      await Promise.race([stop, timeout]);
+    } catch {
+      /* a discovery leállítása nem kritikus */
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

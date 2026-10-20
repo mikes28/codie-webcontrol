@@ -8,15 +8,17 @@
 
 'use strict';
 
+import { resolveScanDuration } from './ble/registry.js';
+
 export function attachRealtime({ io, registry }) {
   io.on('connection', (socket) => {
     socket.emit('robots', { robots: registry.list() });
 
     socket.on('scan:request', async (payload = {}) => {
       try {
-        const durationMs = Math.min(Math.max(Number(payload.durationMs ?? 10000), 1000), 120000);
-        const robots = await registry.scan({ durationMs });
-        socket.emit('scan', { robots, durationMs });
+        // a scan eredményét a registry broadcastolja ('scan' esemény) — nem küldjük
+        // külön is, hogy a kérést kapó socket ne kapja meg kétszer
+        await registry.scan({ durationMs: resolveScanDuration(payload.durationMs, registry.filters.scanMs) });
       } catch (error) {
         socket.emit('error', { message: error.message });
       }
@@ -42,8 +44,8 @@ export function attachRealtime({ io, registry }) {
 
     socket.on('robot:command', async (payload = {}) => {
       try {
-        const result = await registry.command(payload.address, payload.name, payload.params ?? {});
-        socket.emit('command-result', { address: payload.address, ...result });
+        // az eredményt a registry broadcastolja ('command' -> 'command-result')
+        await registry.command(payload.address, payload.name, payload.params ?? {});
       } catch (error) {
         socket.emit('error', { message: error.message });
       }
@@ -54,6 +56,8 @@ export function attachRealtime({ io, registry }) {
   registry.on('scan', (robots) => io.emit('scan', { robots }));
   registry.on('robot', (robot) => io.emit('robot', robot));
   registry.on('telemetry', (robot) => io.emit('telemetry', robot));
+  // a REST-en kiadott parancs eredménye is menjen a socketre
+  registry.on('command', (result) => io.emit('command-result', result));
 
   return { io };
 }

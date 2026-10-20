@@ -15,6 +15,9 @@ import * as morse from '../morse.js';
 import * as tunes from '../tunes.js';
 import { normalizeAddress } from './noble.js';
 
+/** Ennyi notify-frame marad meg a kliensben (debug célra). */
+const NOTIFICATION_HISTORY = 100;
+
 export class CodieClient extends EventEmitter {
   /**
    * @param {{address: string, noble: object, scanner: object, timeout?: number,
@@ -44,7 +47,11 @@ export class CodieClient extends EventEmitter {
     this._writeChar = null;
     this._notifyChar = null;
     this._pending = new Map();
+    /** A legutóbbi notify-frame-ek (debug célra) — korlátolt, hogy ne szivárgasson. */
     this.notifications = [];
+    /** Azok a peripheral-ok, amikhez már kötöttünk 'disconnect' listenert. */
+    this._listenedPeripherals = new WeakSet();
+    this._disconnectedEmitted = false;
   }
 
   // --- életciklus ------------------------------------------------------
@@ -76,7 +83,13 @@ export class CodieClient extends EventEmitter {
             throw new Error(`A ${this.address} robot nem jelent meg a scanben (elalvott?).`);
           }
           this._peripheral = peripheral;
-          peripheral.on('disconnect', () => this._handleDisconnect());
+          this._disconnectedEmitted = false;
+          // A noble cache-el egy peripheral-ot cím alapján, ezért a listenert
+          // csak egyszer kötjük rá — különben egy BLE-drop duplán jelezne.
+          if (!this._listenedPeripherals.has(peripheral)) {
+            this._listenedPeripherals.add(peripheral);
+            peripheral.on('disconnect', () => this._handleDisconnect());
+          }
           // Ha a BlueZ egy korábbi próbálkozás után közben befejezte a kapcsolatot,
           // nem indítunk újabb connectet (az "already connected" hibával elhasalna).
           if (peripheral.state !== 'connected') {
@@ -169,7 +182,7 @@ export class CodieClient extends EventEmitter {
       }
     }
     await this._cleanupPartial();
-    this.emit('disconnected', this.address);
+    this._emitDisconnected();
   }
 
   get isConnected() {
@@ -182,6 +195,13 @@ export class CodieClient extends EventEmitter {
     this._notifyChar = null;
     for (const [, resolver] of this._pending) resolver(null);
     this._pending.clear();
+    this._emitDisconnected();
+  }
+
+  /** Egy lekapcsolódás = egy esemény (a tisztítás és a BLE esemény ne duplikáljon). */
+  _emitDisconnected() {
+    if (this._disconnectedEmitted) return;
+    this._disconnectedEmitted = true;
     this.emit('disconnected', this.address);
   }
 
@@ -191,6 +211,10 @@ export class CodieClient extends EventEmitter {
     const raw = Buffer.from(data);
     const resp = p.decodeResponse(raw);
     this.notifications.push({ raw, resp });
+    // korlát: a telemetria 5 mp-enként olvas, a history nem nőhet a végtelenig
+    if (this.notifications.length > NOTIFICATION_HISTORY) {
+      this.notifications.splice(0, this.notifications.length - NOTIFICATION_HISTORY);
+    }
     if (resp) {
       const resolver = this._pending.get(resp.reqSeq);
       if (resolver) {
@@ -211,25 +235,26 @@ export class CodieClient extends EventEmitter {
       throw new Error('Nincs kapcsolat — hívd előbb a connect()-et.');
     }
     const { frame, seq } = p.buildFrame(cmdId, args);
-    let resolver = null;
-    if (expectResponse) {
-      const promise = new Promise((resolve) => {
-        resolver = resolve;
-      });
-      this._pending.set(seq, resolver);
-      await this._writeChar.writeAsync(frame, true); // write-without-response
-      const timer = setTimeout(() => {
-        if (this._pending.delete(seq)) resolver(null);
-      }, timeout);
-      try {
-        return await promise;
-      } finally {
-        clearTimeout(timer);
-        this._pending.delete(seq);
-      }
+    if (!expectResponse) {
+      await this._writeChar.writeAsync(frame, true);
+      return null;
     }
-    await this._writeChar.writeAsync(frame, true);
-    return null;
+    let resolver = null;
+    const promise = new Promise((resolve) => {
+      resolver = resolve;
+    });
+    this._pending.set(seq, resolver);
+    const timer = setTimeout(() => {
+      if (this._pending.delete(seq)) resolver(null);
+    }, timeout);
+    try {
+      await this._writeChar.writeAsync(frame, true); // write-without-response
+      return await promise;
+    } finally {
+      // a write hibája esetén is takarítunk, hogy a _pending ne szivárgasson
+      clearTimeout(timer);
+      this._pending.delete(seq);
+    }
   }
 
   // --- aktuátorok ------------------------------------------------------
@@ -245,7 +270,9 @@ export class CodieClient extends EventEmitter {
   async playRhythm(pattern) {
     for (const [beepMs, gapMs] of pattern) {
       await this.send(p.CMD_SPEAK_BEEP, p.beepArgs(Math.trunc(beepMs)), { expectResponse: false });
-      await sleep((beepMs + gapMs) / 1000);
+      // A `sleep` ezredmásodpercet vár — a Python-os `asyncio.sleep` másodpercet vár,
+      // ezért itt NEM osztunk 1000-rel.
+      await sleep(beepMs + gapMs);
     }
   }
 
@@ -325,7 +352,13 @@ export class CodieClient extends EventEmitter {
     return r ? p.readU16(r.args, 0) : null;
   }
 
-  /** A robot pillanatnyi állapota — egy csomagban minden szenzor. */
+  /**
+   * A robot pillanatnyi állapota — egy csomagban minden szenzor.
+   *
+   * A feszültség (`BatteryGetVoltage`) ezen a firmware-en **nem válaszol**, ezért
+   * nincs benne: egy válasz-timeout (2,5 mp) minden telemetria-körbe kerülne.
+   * Külön is lekérdezhető: `batteryVoltage()`.
+   */
   async status() {
     const [batteryPct, sonarMm, lightRaw, line] = await Promise.all([
       this.battery(),
@@ -338,7 +371,6 @@ export class CodieClient extends EventEmitter {
       sonarMm,
       lightRaw,
       line,
-      voltageMv: await this.batteryVoltage(),
     };
   }
 

@@ -66,15 +66,26 @@ export async function startServer(options = {}) {
       .catch((error) => console.warn(`[codie] csatlakozás sikertelen (${addressToConnect}): ${error.message}`));
   }
 
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log('\n[codie] leállás...');
     await registry.disconnectAll();
     io.close();
+    try {
+      noble.stop?.();
+    } catch {
+      /* a BLE kapcsolat lezárása nem kritikus */
+    }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  // a jelzőkezelők csak egyszer fussanak (a startServer újra hívható)
+  if (process.listenerCount('SIGINT') === 0) {
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  }
 
   return { app, server, io, registry, noble };
 }

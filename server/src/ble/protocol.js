@@ -115,7 +115,10 @@ function rgbToHsv(r, g, b) {
   if (r === maxc) h = bc - gc;
   else if (g === maxc) h = 2.0 + rc - bc;
   else h = 4.0 + gc - rc;
-  h = (h / 6.0) % 1.0;
+  h = h / 6.0;
+  // A Python `%` mindig nem-negatív eredményt ad pozitív osztóval — a JS `%` megtartja
+  // a jelet, ezért a negatív hue-t itt kézzel kell "pozitívvá" tenni (Python colorsys).
+  if (h < 0) h += 1.0;
   return [h, s, v];
 }
 

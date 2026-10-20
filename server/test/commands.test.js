@@ -106,3 +106,13 @@ test('a Morse-szöveg továbbad', async () => {
 test('az ismeretlen parancs hibát dob', async () => {
   await assert.rejects(() => runCommand(fakeClient(), 'fly', {}), /Ismeretlen parancs/);
 });
+
+test('a nem számértékű paraméter hibát dob (nem csendben 0 lesz)', async () => {
+  const client = fakeClient();
+  await assert.rejects(() => runCommand(client, 'beep', { ms: 'abc' }), /véges szám/);
+  await assert.rejects(() => runCommand(client, 'forward', { cm: 'abc' }), /véges szám/);
+  await assert.rejects(() => runCommand(client, 'backward', { cm: 'abc' }), /véges szám/);
+  await assert.rejects(() => runCommand(client, 'turn', { degrees: 'abc' }), /véges szám/);
+  await assert.rejects(() => runCommand(client, 'ledSingle', { color: 'red', index: 'x' }), /véges szám/);
+  assert.deepEqual(client.calls, [], 'egyetlen parancs se indult el');
+});
