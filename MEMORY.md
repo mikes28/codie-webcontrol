@@ -5,6 +5,46 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ---
 
+## 2026-10-20 — Webes vezérlő (Express.js backend)
+
+- **Kérés:** a repóból weboldal legyen — Express.js backend a robothoz, több robot BT-en,
+  kereső parancs, ami **nem listázza a többi BT eszközt**, plusz újrahasznosítható
+  backend-scriptek és egy konzol-script, ami ezeket használja.
+- **BLE réteg döntés:** az upstream `noble` Linuxon **nyers HCI-t** kér (root + natív build,
+  konfliktus a BlueZ-zel), ezért a `@stoprocent/noble` fork **D-Bus/BlueZ bindingje** lett:
+  root nélkül fut, együtt működik a `bluetoothctl`-lel. (`dbus-next` a host projekt kell.)
+- **Robot-szűrő:** név-prefix (`Codie`, `Codie 2`) VAGY hirdetett service-UUID
+  (`52af0001-…` GATT + `d46e7e53-ba2f-4044-ade9-f85ead45f458`, amit a robot hirdet) —
+  plusz opcionális **MAC-allowlist** (`CODIE_MAC_ALLOWLIST`, `CODIE_MAC_ONLY`).
+  Élőben igazolva: a környezetben 8+ más BLE eszköz van (fehallgatók, telefonok, karika),
+  a scan **csak a robotot** adja vissza.
+- **A robot viselkedése (fontos!):** random BLE-cím, és **egyetlen hirdetés után visszaalvik**;
+  5 perc alatt egyszer jelent meg. Alvás közben a BlueZ `Connect()`-je nem fejeződik be
+  (a `bluetoothctl` is csak "Attempting to connect"-et ír) → **a robotnak ébren kell lennie
+  (gombnyomás) a csatlakozáshoz**. Ez hardver-korlát, nem szoftverbug: a Python (bleak)
+  referencia pontosan ugyanígy elhasal (`BleakDeviceNotFoundError`).
+- **Négy valódi bug, amit a munka során találtunk:**
+  1. A sikertelen connect **lezárása** (`disconnectAsync`) elakadhat — a BlueZ egy félbehagyott
+     connectre nem válaszol azonnal. Javítás: időtartam-biztosított takarítás.
+  2. A `RobotRegistry.scan()` a **normalizálatlan** címmel tárolt a robotot, míg a
+     `describe()/get()/connect()` normalizál → a robot " eltűnt" a listából. Javítás:
+     a scan is normalizál (a hamis robot ezt rögtön elkapta).
+  3. **Az UUID-forma eltér**: a BlueZ binding kötőjel nélküli, kisbetűs UUID-t ad vissza, a
+     mi konstansaink kötőjelesek voltak → sem a write/notify karakterisztika-keresés, sem
+     a UUID-alapú identitásszűrés nem működött volna (a név-szűrő elfedte). Javítás:
+     kanonikus UUID (`canonicalUuid`/`sameUuid`) minden összehasonlításban.
+  4. A scriptek `process.exit()`-tel szakítottak meg — **pipe-on kimenetet dobott el**;
+     a konzol ráadásul nem sorban futtatta a parancsokat, és stdin-EOF-nál megszakította
+     a futó scan-t. Javítás: tiszta kilépés (`finish()`), parancssor (queue).
+- **Protokoll-paritás:** a JS portot a Python referenciával **bájtra bájtra** ellenőrző
+  teszt (`server/test/parity.test.js` + `test/parity_probe.py`) védi az elcsúszás ellen.
+- **Hamis robot** (`server/test/fake-robot.js`): a teljes szoftverstack (scan → szűrés →
+  connect → parancs → telemetria → REST → socket.io) futtatható hardver nélkül — 45 teszt.
+- **Nyitott:** a robot élő, teljes körű (szenzor/LED/beep) igazolása a *valódi* hardveren —
+  ehhez a robotnak ébren kell lennie.
+
+---
+
 ## 2026-07-07 — A robot feltámasztva
 
 - A `csorbazoli/CodieController` repo átnézve. Megerősítve: 2016-os, félbehagyott Java PoC

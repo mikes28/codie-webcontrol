@@ -31,6 +31,10 @@ scripts/
   fft_pitch.py        hangfelvétel domináns frekvenciája (FFT)
   verify_directions.py  mozgásirányok élő igazolása
 tests/            protokoll + Morse + MCP smoke (27 unit teszt)
+server/           Express + socket.io web-backend (JS), több robot, robot-szűrő
+  src/ble/        protocol.js, client.js, scanner.js, registry.js (noble/BlueZ)
+  scripts/        scan.js, control.js, console.js
+  public/         a webes felület
 docs/comApi.h     hivatalos Codie BLE API header (referencia)
 ```
 
@@ -88,6 +92,32 @@ szalad le az asztalról.
 .venv/bin/python scripts/test_all.py sensors    # csak szenzorok
 .venv/bin/python scripts/test_all.py led drive  # csak LED + mozgás
 ```
+
+## Webes vezérlő (Express.js backend) — `server/`
+
+A repo mellett futó Node.js backend: **Express + socket.io**, és a robotokat BLE-en
+(BlueZ D-Bus binding, root nélkül) vezérli. Több robotot is kezel, és a keresés
+**csak a Codie-kat mutatja** — a többi BLE eszköz (fehallgatók, telefonok) kiszűrve.
+
+```bash
+cd server
+npm install
+npm start          # http://localhost:3000 — webes felület + REST + socket.io
+```
+
+A hálózati réteg újrahasznosítható modulokra épül, így a frontend később
+tetszőlegesen átírható:
+
+```bash
+npm run scan                                   # robotok keresése (csak a robotok)
+node scripts/control.js --robot <CÍM> led red  # egy parancs, non-interaktívan
+node scripts/console.js                        # interaktív konzol
+```
+
+Részletek (API, socket-események, szűrők, konfig): [`server/README.md`](server/README.md).
+
+> A JS wire-protokoll a Python `codie/protocol.py` 1:1 portja — a `server/test/parity.test.js`
+> bájtra bájtra ellenőrzi, hogy a kettő ne csússzon el.
 
 ## Hang: ritmus és Morse
 

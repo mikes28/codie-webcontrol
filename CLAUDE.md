@@ -21,7 +21,7 @@ fogadott és végrehajtott parancsot (SpeakBeep) — ismételhetően igazolva. K
 **hivatalos Codie BLE API v1.0** dokumentáció + `comApi.h` (lásd `docs/comApi.h`), amely a
 visszafejtett protokollt teljesen igazolta (egy hibát is feltárt: a HSV 0-255, nem 0-100).
 
-**Jelenlegi állapot (v0.1.0):** működő Python package (`CodieClient`), minden funkció élőben
+**Jelenlegi állapot (v0.2.0):** működő Python package (`CodieClient`), minden funkció élőben
 igazolva (szenzorok, hang, mozgás, LED), hang/ritmus/Morse réteg, FFT-alapú frekvenciamérés
 (a csipogó ~2483 Hz-es önrezgő buzzer), és egy MCP szerver a Hermes-integrációhoz. A verziózás
 semver + git tag + GitHub release; a projekt privát repóban: `github.com/sanchomuzax/codie`.
@@ -43,6 +43,19 @@ semver + git tag + GitHub release; a projekt privát repóban: `github.com/sanch
 **Hermes skill (`hermes/skills/robotics/codie-robot/SKILL.md`):** playbook az agentnek — mikor/hogyan
 használja a `mcp_codie_*` toolokat (érzékelés, véges mozgás, buktatók, biztonság).
 **Docs:** `docs/comApi.h` (hivatalos header), `CHANGELOG.md`, `VERSION`.
+
+**Web-backend (`server/`, Node.js):**
+- `src/ble/protocol.js` — a `protocol.py` 1:1 JS portja (frame, parancs-ID-k, HSV 0-255).
+  A `test/parity.test.js` bájtra bájtra összeveti a Python referenciával.
+- `src/ble/client.js` — `CodieClient` (noble/BlueZ D-Bus): connect retry + scanablak,
+  notify-feliratkozás, SEQ↔REQSEQ párosítás, aktuátor- és szenzormetódusok.
+- `src/ble/scanner.js` — robot-felderítés **szűréssel** (név / hirdetett UUID / MAC-allowlist);
+  a környezet többi BLE eszköze nem jelenik meg.
+- `src/ble/registry.js` — `RobotRegistry`: több robot, kapcsolatok, telemetria-poll, események.
+- `src/commands.js` — magas szintű parancsszemantika (a REST/CLI/konzol közös rétege).
+- `src/app.js`, `src/routes/robots.js`, `src/realtime.js` — Express REST API + socket.io.
+- `scripts/` — `scan.js`, `control.js`, `console.js` (a backend moduljait használják).
+- `public/` — a webes felület (socket.io-n át).
 
 ## Hardver / BLE topológia
 

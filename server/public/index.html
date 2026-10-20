@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codie vezérlő</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Codie <span>vezérlő</span></h1>
+      <div class="topbar-right">
+        <span id="socket-status" class="badge badge-off">socket: kapcsolódás…</span>
+        <button id="scan-btn" class="btn btn-primary">Robotok keresése</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel robots-panel">
+        <h2>Robotok <span id="robot-count" class="muted"></span></h2>
+        <p id="scan-hint" class="muted small">
+          A keresés csak a Codie robotokat mutatja — a többi BLE eszköz kiszűrve.
+        </p>
+        <ul id="robot-list" class="robot-list"></ul>
+        <p id="robots-empty" class="muted small">Még nincs robot. Indíts egy keresést.</p>
+      </section>
+
+      <section class="panel control-panel">
+        <h2>Robot <span id="active-name" class="muted">— nincs kiválasztva —</span></h2>
+
+        <div class="telemetry" id="telemetry">
+          <div class="telemetry-item"><span class="label">Akku</span><span class="value" id="t-battery">—</span></div>
+          <div class="telemetry-item"><span class="label">Szonár</span><span class="value" id="t-sonar">—</span></div>
+          <div class="telemetry-item"><span class="label">Fény</span><span class="value" id="t-light">—</span></div>
+          <div class="telemetry-item"><span class="label">Vonal</span><span class="value" id="t-line">—</span></div>
+        </div>
+
+        <div class="group">
+          <h3>Mozgás <small class="muted">(a robotnak szabadon kell forogni)</small></h3>
+          <div class="buttons">
+            <button class="btn" data-cmd="forward" data-cm="10">Előre 10 cm</button>
+            <button class="btn" data-cmd="forward" data-cm="30">Előre 30 cm</button>
+            <button class="btn" data-cmd="backward" data-cm="10">Hátra 10 cm</button>
+            <button class="btn" data-cmd="turn" data-degrees="90">Fordul 90°</button>
+            <button class="btn" data-cmd="turn" data-degrees="-90">Fordul -90°</button>
+            <button class="btn btn-danger" data-cmd="stop">STOP</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Fény</h3>
+          <div class="buttons" id="led-buttons">
+            <button class="btn led" data-color="red" style="--led: #e5484d"></button>
+            <button class="btn led" data-color="green" style="--led: #30a46c"></button>
+            <button class="btn led" data-color="blue" style="--led: #0091ff"></button>
+            <button class="btn led" data-color="yellow" style="--led: #f5d90a"></button>
+            <button class="btn led" data-color="orange" style="--led: #ff8b3d"></button>
+            <button class="btn led" data-color="cyan" style="--led: #00e5ff"></button>
+            <button class="btn led" data-color="white" style="--led: #f0f0f0"></button>
+            <button class="btn" data-cmd="ledsOff">Kikapcsol</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Hang</h3>
+          <div class="buttons">
+            <button class="btn" data-cmd="beep" data-ms="500">Beep 500 ms</button>
+            <button class="btn" data-cmd="beep" data-ms="2000">Beep 2 s</button>
+          </div>
+          <div class="inline-form">
+            <input id="morse-text" type="text" placeholder="Morse szöveg (pl. SOS)" />
+            <button class="btn" data-cmd="morse">Morse</button>
+          </div>
+        </div>
+
+        <p id="status-line" class="status muted small">—</p>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

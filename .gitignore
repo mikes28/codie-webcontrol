@@ -5,6 +5,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Node (web-backend)
+node_modules/
+npm-debug.log*
+
 # Titkos / lokális konfiguráció
 .env
 

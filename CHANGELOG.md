@@ -2,6 +2,50 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.2.0] — 2026-10-20
+
+### Added — webes vezérlő (Express.js backend, `server/`)
+- **`server/` — új Node.js backend**: Express REST API + socket.io + statikus webes felület.
+  A BLE réteg a **BlueZ D-Bus bindinget** használja (`@stoprocent/noble`), így **root nélkül**
+  fut, és együtt működik a `bluetoothctl`-lel (a `noble` upstream Linuxon nyers HCI-t kérne).
+- **Több robot egy szerveren**: a `RobotRegistry` (`src/ble/registry.js`) robotonként egy-egy
+  BLE-kapcsolatot tart, saját telemetria-pollal; a REST és a socket felület ugyanazt a
+  `RobotRegistry`-t használja.
+- **Robot-felderítés, ami csak a robotokat mutatja** (`src/ble/scanner.js`): név-alapú
+  ("Codie", "Codie 2"), hirdetett service-UUID-alapú és opcionális **MAC-allowlist** szűrés
+  (`CODIE_MAC_ALLOWLIST`, `CODIE_MAC_ONLY`). A környezet többi BLE eszköze (fehallgatók,
+  telefonok, fitnesz-karikák) nem jelenik meg.
+- **Parancsréteg újrahasznosítható** (`src/commands.js`): ugyanaz a szemantika (cm→mm,
+  fordulás-előjel, 0..200 cm vágás, 1..10000 ms beep) a REST API-n, a CLI-n és a konzolon.
+- **Scriptek, amik "működnek"**: `scripts/scan.js` (robotok keresése), `scripts/control.js`
+  (egy parancs non-interaktívan), `scripts/console.js` (interaktív konzol) — mind a backend
+  moduljait használják, tehát a frontend később ugyanazokat a rétegeket tudja használni.
+- **socket.io réteg** (`src/realtime.js`): szerver→kliens `robots`/`robot`/`scan`/`telemetry`/
+  `command-result`, kliens→szerver `scan:request`/`robot:connect`/`robot:disconnect`/
+  `robot:command`. A REST API és a socket ugyanazokat a műveleteket éri el.
+- **JS wire-protokoll** (`src/ble/protocol.js`): a Python `codie/protocol.py` 1:1 portja.
+  A `server/test/parity.test.js` a Python referenciával **bájtra bájtra** összehasonlítja
+  (frame-ek, szekvencia, HSV-értékek, válaszdekódolás, Morse, ritmusok) — a port nem csúszhat el.
+- 40 Node unit teszt (`server/test/`): protokoll, paritás, szűrő, parancsszemantika, REST API.
+
+### Changed
+- `README.md`: új „Webes vezérlő" szakasz + a `server/` a projektstruktúrában;
+  `server/README.md` a részletes dokumentáció (API, socket-események, szűrők, konfig).
+
+### Fixed (a web-backend első verziójában talált hibák)
+- **UUID-forma:** a BlueZ binding kötőjel nélküli, kisbetűs UUID-kat ad vissza, a konstansaink
+  kötőjelesek voltak → a write/notify karakterisztika-keresés és az UUID-alapú identitásszűrés
+  nem működött. Most kanonikus UUID-összevetés (`canonicalUuid`/`sameUuid`) mindenütt.
+- **Registry:** a `scan()` a normalizálatlan címmel tárolt a robotot (a `describe()`/`get()`
+  normalizál) → a robot eltűnt a listából. A scan is normalizál.
+- **Connect:** a sikertelen connect lezárása (`disconnectAsync`) elakadhatott a BlueZ-en;
+  a takarítás most időtartam-biztosított. A connect **egyetlen** BlueZ-kapcsolatot indít és
+  arra türelmesen vár (a retry-k ugyanarra a promise-re várnak), így a robot ébredésére
+  befejeződik, nem szakad meg a próbálkozások között.
+- **Scriptek:** a `process.exit()` eldobta a pipe-on ki nem flush-olt kimenetet (tiszta kilépés
+  `finish()` helperrel), és a konzol nem sorban futtatta a parancsokat, illetve stdin-EOF-nal
+  megszakította a futó scan-t (parancssor + a futó parancs megvárása kilépéskor).
+
 ## [0.1.0] — 2026-07-07
 
 ### Added — a Codie BLE vezérlés első importálása
