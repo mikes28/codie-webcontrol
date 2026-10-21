@@ -127,7 +127,19 @@ export class CodieClient extends EventEmitter {
     this._lastWriteAt = 0;
     this._seq = 0;
     this.notifications = [];
-    this._listenedPeripherals = new WeakSet();
+    /**
+     * A feliratkozott karakterisztika-listener-ek (cél, esemény, handler).
+     *
+     * A noble **cache-eli** a karakterisztikákat, így egy újracsatlakozás
+     * ugyanarra a példányra kötne új 'data' listenert — a listener-ek
+     * halmozódnának (a Node a 10. fölött figyelmeztet), és minden notify-t
+     * minden régi kliens feldolgozná. Ezért a saját listener-ünket a
+     * takarításkor levesszük.
+     */
+    this._listeners = [];
+    /** A peripheral 'disconnect' handlerje — külön tárolva, mert a kapcsolat
+     *  életideje hosszabb a karakterisztika-listener-ekénél. */
+    this._peripheralDisconnectHandler = null;
     this._disconnectedEmitted = false;
 
     // Az EventEmitter 'error' eseménye listener nélkül **dobja** az exceptiont —
@@ -140,6 +152,48 @@ export class CodieClient extends EventEmitter {
   /** A felismerett generáció: 'routing' | 'no-routing' | null (még nincs csatlakozva). */
   get variant() {
     return this._variant;
+  }
+
+  // --- BLE-listener-ek --------------------------------------------------
+
+  /**
+   * Feliratkozás egy BLE-eseményre — a takarításkor a saját listener-ünket
+   * vesszük le (a noble cache-elt objektumainál a listener halmozódna).
+   * @param {object} target
+   * @param {string} event
+   * @param {Function} handler
+   */
+  _listen(target, event, handler) {
+    target.on(event, handler);
+    this._listeners.push({ target, event, handler });
+  }
+
+  /** A karakterisztika-listener-ek levéteele (új feliratkozás előtt). */
+  _unlistenCharacteristics() {
+    for (const { target, event, handler } of this._listeners.splice(0)) {
+      try {
+        target.removeListener(event, handler);
+      } catch {
+        /* a takarítás nem kritikus */
+      }
+    }
+  }
+
+  /**
+   * Minden saját BLE-listener levéteele (a kapcsolat megszakadásakor).
+   * @param {object|null} [peripheral] a peripheral, amiről a listenert le kell venni
+   */
+  _unlistenAll(peripheral = this._peripheral) {
+    this._unlistenCharacteristics();
+    if (this._peripheralDisconnectHandler) {
+      const handler = this._peripheralDisconnectHandler;
+      this._peripheralDisconnectHandler = null;
+      try {
+        peripheral?.removeListener('disconnect', handler);
+      } catch {
+        /* a takarítás nem kritikus */
+      }
+    }
   }
 
   // --- életciklus ------------------------------------------------------
@@ -216,12 +270,12 @@ export class CodieClient extends EventEmitter {
     this._peripheral = peripheral;
     this._connected = true;
     this._disconnectedEmitted = false;
-    // A noble cache-el egy peripheral-ot cím alapján, ezért a listenert
-    // csak egyszer kötjük rá — különben egy BLE-drop duplán jelezne.
-    if (!this._listenedPeripherals.has(peripheral)) {
-      this._listenedPeripherals.add(peripheral);
-      peripheral.on('disconnect', () => this._handleDisconnect());
-    }
+    // A 'disconnect' esemény a link megszakadását jelzi. A listener a
+    // **sajátunk** — a noble cache-eli a peripheral-t, ezért minden
+    // újracsatlakozás új listenert kötne rá (a Node a 10. fölött figyelmeztet),
+    // és egy BLE-drop duplán jelezne. A takarítás leveszi.
+    this._peripheralDisconnectHandler = () => this._handleDisconnect();
+    peripheral.on('disconnect', this._peripheralDisconnectHandler);
 
     await this._setup(peripheral);
   }
@@ -268,6 +322,11 @@ export class CodieClient extends EventEmitter {
     const peripheral = this._peripheral;
     this._peripheral = null;
     this._connected = false;
+    // A BLE-listener-ek lekéte: a noble cache-eli a karakterisztikákat, így a
+    // régi 'data' handlerek az új kapcsolat üzeneteit is feldolgoznák.
+    this._unlistenAll(peripheral);
+    // a függőben lévő kéréseknek nem jön válasz (a link megszakadt)
+    this._clearPending();
     if (!peripheral) return;
     try {
       // A BlueZ egy félbehagyott connectre nem mindig válaszol azonnal a Disconnect()-re,
@@ -288,13 +347,21 @@ export class CodieClient extends EventEmitter {
   }
 
   _handleDisconnect() {
+    const peripheral = this._peripheral;
     this._peripheral = null;
     this._connected = false;
+    // a link megszakadt → a saját BLE-listener-ek már stale-ek
+    this._unlistenAll(peripheral);
+    this._clearPending();
+    this._emitDisconnected();
+  }
+
+  /** A függőben lévő kérések nullra oldása (a válasz már nem jön). */
+  _clearPending() {
     for (const map of [this._pending, this._queryPending, this._actionPending]) {
       for (const [, resolver] of map) resolver(null);
       map.clear();
     }
-    this._emitDisconnected();
   }
 
   /** Egy lekapcsolódás = egy esemény (a tisztítás és a BLE esemény ne duplikáljon). */
@@ -322,6 +389,9 @@ export class CodieClient extends EventEmitter {
     let lastError = null;
     while (Date.now() < deadline) {
       try {
+        // egy korábbi iteráció (pl. a subscribe hibája) már feliratkozott —
+        // a stale handlerek ne maradjanak rajta a karakterisztikán
+        this._unlistenCharacteristics();
         const { characteristics } = await peripheral.discoverAllServicesAndCharacteristicsAsync();
         const find = (uuid) => characteristics.find((c) => p.sameUuid(c.uuid, uuid));
 
@@ -331,7 +401,7 @@ export class CodieClient extends EventEmitter {
           this._writeChar = routingWrite;
           this._notifyChar = find(p.NOTIFY_UUID);
           if (this._notifyChar) {
-            this._notifyChar.on('data', (data) => this._onRoutingNotify(data));
+            this._listen(this._notifyChar, 'data', (data) => this._onRoutingNotify(data));
             await this._notifyChar.subscribeAsync();
           }
           return;
@@ -346,11 +416,11 @@ export class CodieClient extends EventEmitter {
           this._requestReplyChar = find(np.REQUEST_REPLY_UUID);
           this._actionReplyChar = find(np.ACTION_REPLY_UUID);
           if (this._requestReplyChar) {
-            this._requestReplyChar.on('data', (data) => this._onNoRoutingReply(data, 'query'));
+            this._listen(this._requestReplyChar, 'data', (data) => this._onNoRoutingReply(data, 'query'));
             await this._requestReplyChar.subscribeAsync();
           }
           if (this._actionReplyChar) {
-            this._actionReplyChar.on('data', (data) => this._onNoRoutingReply(data, 'action'));
+            this._listen(this._actionReplyChar, 'data', (data) => this._onNoRoutingReply(data, 'action'));
             await this._actionReplyChar.subscribeAsync();
           }
           // A firmware az első üzenetet nem mindig nyugtázza, és a túl gyorsan

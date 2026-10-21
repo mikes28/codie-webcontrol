@@ -126,3 +126,21 @@ test('két párhuzamos írás közt is betart a kötelező szünet', async () =>
   const gap = times[1] - times[0];
   assert.ok(gap >= 45, `a két írás közt legalább 60 ms kell, mért: ${gap} ms`);
 });
+
+test('az újracsatlakozás nem halmozza a BLE-listener-eket a karakterisztikán', async () => {
+  // A noble cache-eli a karakterisztikákat, így minden új kliens ugyanarra a
+  // példányra kötne új 'data' listenert — a halmozódás a Node-on figyelmeztetést
+  // (MaxListenersExceededWarning) okoz, és minden notify-t minden régi kliens
+  // feldolgozna.
+  const robot = new FakeCodie();
+  const notifyChar = robot._notifyChar;
+
+  const first = await connectedClient(robot);
+  assert.equal(notifyChar.listenerCount('data'), 1, 'egy kapcsolat = egy listener');
+  await first.client.disconnect();
+  assert.equal(notifyChar.listenerCount('data'), 0, 'a lekapcsolódás leveszi a listenert');
+
+  const second = await connectedClient(robot);
+  assert.equal(notifyChar.listenerCount('data'), 1, 'az újracsatlakozás után is egy listener');
+  await second.client.disconnect();
+});

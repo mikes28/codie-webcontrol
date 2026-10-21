@@ -5,6 +5,34 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ---
 
+## 2026-10-21 — A szerver újraindítása + a BLE-listener szivárgás javítása
+
+- **Kérés:** „nem fut, indítsd el”. Valójában a HTTP-szerver **futott** (20 órája, detached
+  indítással, `/tmp/codie-server.log`-ba), és a `/api/health` 200-as válaszolt — de a
+  **robot linkje halott** volt: a `/api/robots` `connected: false`-t adott, a telemetria
+  percekkel korábbi volt, és az újracsatlakozás kimerült (3 próbálkozás). A robot közben
+  hirdetett (`node scripts/scan.js` megtalálta, `00:07:80:66:F0:DA`) → a hiba nem a
+  hardverben, hanem a kliensben volt.
+- **A talált hiba (a logban is látszott):** `MaxListenersExceededWarning` — 11 `data`
+  listener egy `Characteristic`-en és 11 `disconnect:<cím>` listener a `Noble`-on. A noble
+  **cache-eli** a karakterisztikákat és a peripheral-t, a kliens pedig minden kapcsolatnál
+  új listenert kötött rá, és **soha nem szedte le** → minden notify-t minden régi kliens
+  feldolgozott, a `peripheral` 'disconnect' listenere pedig duplán jelezte a dropot.
+- **Javítás (`server/src/ble/client.js`):** a kliens megjegyzi a saját listener-eit
+  (`_listen` / `_unlistenAll` / `_unlistenCharacteristics`), és levesszük őket a kapcsolat
+  megszakadásakor, a részleges takarításkor és a `_setup` újrapróbálkozásakor. A
+  függőben lévő kérések nullra oldása kiemelve (`_clearPending`), hogy a explicit
+  lekapcsolódás is feloldja őket. Regressziós teszt: `server/test/client.test.js`
+  („az újracsatlakozás nem halmozza a BLE-listener-eket a karakterisztikán").
+- **A szerver indítása mostantól tartósan:** a gitignore-olt `server/.env` beállítja a
+  `CODIE_AUTO_CONNECT=00:07:80:66:F0:DA`-t → a szerver induláskor magától csatlakozik a
+  robothoz (a routing nélküli generáció címe stabil). Indítás:
+  `setsid nohup node src/index.js >>/tmp/codie-server.log 2>&1 &` (a `kate` is nyitva
+  tartja a `src/index.js`-t — az érintetlen).
+- **Élő igazolás:** 12 egymás utáni le-/újracsatlakozás mind 200-as válasz, **0**
+  listener-figyelmeztetés, a telemetria folyamatosan frissül (akku 97 %, szonár 21 mm,
+  fény ~4020, vonal-szint ~15), a felület (`/` és a socket.io kézfogás) 200-as.
+
 ## 2026-10-20 — A webes felület megbízhatósága (a második Codie-generációval)
 
 - **Kérés:** „működjön a Bluetooth a weboldalon hiba nélkül”. A v0.11.0 (a második

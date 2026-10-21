@@ -2,6 +2,20 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.3.1] — 2026-10-21
+
+### Fixed
+- **A BLE-listener-ek nem halmozódnak az újracsatlakozások során.** A noble cache-eli a
+  peripheral-t és a karakterisztikákat, a kliens viszont minden kapcsolatnál új
+  `'data'` listenert kötött rá a notify/reply karakterisztikákra, és a
+  `peripheral` `'disconnect'` listenert sem szedte le → 20 óra alatt 11 listener
+  volt egy karakterisztikán (`MaxListenersExceededWarning`), és minden notify-t
+  minden régi kliens feldolgozott. Javítás: a kliens megjegyzi a saját
+  listener-eit, és a kapcsolat megszakadásakor (illetve a `_setup` újrapróbálkozásakor)
+  leveszi őket. Regressziós teszt: `server/test/client.test.js` —
+  „az újracsatlakozás nem halmozza a BLE-listener-eket a karakterisztikán”.
+  Élőben igazolva: 12 egymás utáni le-/újracsatlakozás után is 0 figyelmeztetés.
+
 ## [0.3.0] — 2026-10-20
 
 ### Added — a második Codie-generáció támogatása
