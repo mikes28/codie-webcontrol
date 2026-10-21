@@ -5,6 +5,19 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ---
 
+## 2026-10-21 — A projekt átköltözött: `mikes28/codie-webcontrol`
+
+- **A repó:** a történet eddig a `sanchomuzax/codie` repóban volt (nem a miénk) → a
+  projekt mostantól a **`github.com/mikes28/codie-webcontrol`** repóban van (publikus).
+  A `git remote rename origin upstream` + az új `origin` a régi repót **érintetlenül**
+  hagyja (az `upstream` `main` továbbra is `f629fcc`).
+- **A `main` a régi történettel folytatódik** (nem újrakezdés): a gyökércommit-tól
+  napjainkig minden benne van, a 13 korábbi taggel együtt.
+- **A hiányzó kiadások megcsinálva:** a CHANGELOG által dokumentált, de tag/release
+  nélküli verziók most megvannak — v0.10.0 (webes vezérlő), v0.11.0 (második generáció),
+  v0.11.1 (listener-javítás), v0.12.0 (LED-animáció): annotált tag + GitHub release,
+  a megszokott „v0.X.Y — cím" formában.
+
 ## 2026-10-21 — Beépített LED-animáció (v0.12.0)
 
 - **A felfedezett üres hely:** a routing nélküli protokollban a `CMD_SET_ANIMATION` (0x0009)

@@ -26,8 +26,10 @@ igazolva (szenzorok, hang, mozgás, LED), hang/ritmus/Morse réteg, FFT-alapú f
 (a csipogó ~2483 Hz-es önrezgő buzzer), egy MCP szerver a Hermes-integrációhoz, és egy
 **Express.js web-backend** (`server/`), amely **mindkét Codie-generációt** beszél
 (a routingost a Python-egyben, a routing nélkülit a JS-ben), élő érzékelőadatokkal,
-mikrofon-figyeléssel és automatikus újracsatlakozással. A verziózás
-semver + git tag + GitHub release; a projekt privát repóban: `github.com/sanchomuzax/codie`.
+mikrofon-figyeléssel, beépített LED-animációval és automatikus újracsatlakozással. A verziózás
+semver + git tag + GitHub release; a projekt repója: `github.com/mikes28/codie-webcontrol`
+(publikus) — a történet forrása a `sanchomuzax/codie`, amit `upstream` remoteként
+(fetch-only) használunk.
 
 ## Projekt struktúra
 
