@@ -11,14 +11,22 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
   projekt mostantól a **`github.com/mikes28/codie-webcontrol`** repóban van (publikus).
   A `git remote rename origin upstream` + az új `origin` a régi repót **érintetlenül**
   hagyja (az `upstream` `main` továbbra is `f629fcc`).
-- **A `main` a régi történettel folytatódik** (nem újrakezdés): a gyökércommit-tól
-  napjainkig minden benne van, a 13 korábbi taggel együtt.
-- **A hiányzó kiadások megcsinálva:** a CHANGELOG által dokumentált, de tag/release
-  nélküli verziók most megvannak — v0.10.0 (webes vezérlő), v0.11.0 (második generáció),
-  v0.11.1 (listener-javítás), v0.12.0 (LED-animáció): annotált tag + GitHub release,
-  a megszokott „v0.X.Y — cím" formában.
+- **A történet átírva, csak a saját commitokkal:** a 23 eredeti commit (sanchomuzax /
+  Sancho) kiesett a repóból — a gyökércommit most a projekt importálása, a te 7
+  mikes28-commitoddal a fájlok változatlanok (csak a `VERSION`, a `CHANGELOG.md` és a
+  `CLAUDE.md` verziójelzői változtak). A közreműködői listán így csak a mikes28 látszik
+  (8 commit). Az eredeti fejlődés megmarad az `upstream` repóban és a MEMORY/CHANGELOG
+  szövegében.
+- **A verzió-sorozat az elejéről indul:** v0.1.0 (importálás) → v0.2.0 (webes vezérlő)
+  → v0.3.0 (második generáció) → v0.3.1 (listener-javítás) → v0.4.0 (LED-animáció).
+  A régi 0.1.0–0.9.0 CHANGELOG-szakaszok az importálás szakaszába csukkolva maradtak
+  (a Python oldal fejlődésének listájával), a `VERSION` és a `CLAUDE.md` állapotsora
+  minden commitban az adott verziót mutatja.
+- **A kiadások megvannak:** mind az öt verzióhoz annotált tag + GitHub release, a
+  megszokott „v0.X.Y — cím" formában. (A backup az átírás előtti állapotról:
+  `/tmp/codie-pre-rewrite.bundle`.)
 
-## 2026-10-21 — Beépített LED-animáció (v0.12.0)
+## 2026-10-21 — Beépített LED-animáció (v0.4.0)
 
 - **A felfedezett üres hely:** a routing nélküli protokollban a `CMD_SET_ANIMATION` (0x0009)
   deklarálva volt, a hamis robot is kezelte — de **se kliensmetódus, se parancs nem
@@ -69,7 +77,7 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ## 2026-10-20 — A webes felület megbízhatósága (a második Codie-generációval)
 
-- **Kérés:** „működjön a Bluetooth a weboldalon hiba nélkül”. A v0.11.0 (a második
+- **Kérés:** „működjön a Bluetooth a weboldalon hiba nélkül". A v0.3.0 (a második
   generáció támogatása) után a felületet végigellenőrizve a valódi roboton.
 - **A robot BLE-címe stabil** (a felhasználó ki/bekapcsolta, és ugyanaz a cím maradt):
   `00:07:80:66:F0:DA`. A korábbi „alvás közben rotálja a BLE-címét” állítás erre a
