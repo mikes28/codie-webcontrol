@@ -18,6 +18,14 @@ import { parseArgs, flagEnabled, formatRobotTable, finish } from '../src/cli.js'
 
 const { _: positional, flags } = parseArgs(process.argv.slice(2));
 
+if (flags.help || flags.h) {
+  console.log(
+    'Használat: node scripts/scan.js [--duration <ms>] [--name <név>] [--mac <cím>] [--json]\n' +
+      'A környezetben lévő Codie robotokat keresi (a többi BLE eszköz kiszűrve).',
+  );
+  process.exit(0);
+}
+
 const filters = {
   ...config.ble,
   nameFilter: flags.name ?? config.ble.nameFilter,

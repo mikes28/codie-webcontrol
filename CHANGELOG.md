@@ -2,6 +2,168 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.3.0] — 2026-10-20
+
+### Added — a második Codie-generáció támogatása
+- **Két Codie-generáció, automatikus felismeréssel.** A BLE kliens a GATT-elrendezésből
+  eldönti, melyik protokollal beszéljen a robottal:
+  - **routingos** (`52af0001-978a-628d-c845-0a104ca2b8dd`): `INFO(1) | SEQ(2) | CMD(2) |
+    ARGLEN(2) | ARG…` frame, write `52af0002`, notify `52af0003` — ez a repo Python
+    `codie/protocol.py` kliensének protokollja;
+  - **routing nélküli** (`d46e7e53-ba2f-4044-ade9-f85ead45f458`): `SEQ(2) | CMD(2) | PARAM…`
+    frame, **négy** karakterisztika (request `25ad752e…` + reply `02a92ec6…`, action
+    `0b08f48d…` + reply `8a7f8f01…`) — ezt a
+    [zbettenbuk/codiejs](https://github.com/zbettenbuk/codiejs) dokumentálja.
+- **Új modul `src/ble/protocol-norrouting.js`**: a routing nélküli generáció parancs- és
+  érzékelő-ID-k, frame-kódolás/dekódolás, a válasz `SEQ(2 LE) | VALUE(változó hosszúságú LE)`
+  formátuma (akku 1 bájt, távolság/fény/hang 2 bájt, vonal 4 bájt, nyugta 1 bájt) és a
+  normalizálások (távolság 0,1 mm egységből mm, akku 100-ra vágva).
+- **A parancsréteg generációfüggetlen**: a `src/commands.js` ugyanazt a parancskészletet
+  látja mindkét generációnál, csak a frame-formátum és a skálák térnek el. A LED-szín
+  átvitele routing nélkül: hue `×0,7` (0-360 → 0-252), saturation/value `×2,55`
+  (0-100 → 0-255). A routing nélküli csipogás **hangerőt és frekvenciát is** visz
+  (`volume` u8 + `frequency` u16 + `duration` u16) — a routingos `SpeakBeep` csak a
+  hosszát küldi.
+- **`variant` a robot leírásában**: a `RobotRegistry.describe()` most a felismert generációt
+  is visszaadja (`'routing'` | `'no-routing'` | `null` — `null`, ha még nincs csatlakozva).
+- **Az `/api/config` a támogatott generációkat is közli** (`variants: ['routing',
+  'no-routing']`), így a frontend alkalmazkodhat; a `server/public/` felület pedig a robot
+  neve mellett **generáció-jelvényként** mutatja ezt.
+
+### Changed
+- **A connect folyamat újraírva, a Python `codie/client.py` 1:1 portja szerint**:
+  csatlakozás **cím** alapján (`noble.connectAsync(address)` — nem egy megscanelt
+  peripheral-objektum), a próbálkozások között **ébresztő scan** (`_scanWake()`), a
+  részleges állapot takarítása sikertelen próba után, és a retry-ciklus
+  (`CODIE_CONNECT_RETRIES` × `CODIE_CONNECT_TIMEOUT_MS`).
+- **A scanner kapott egy `wakeScan()` és egy `connectSession()` segédet** — a wake scan
+  felfedezi a BlueZ-ben a címet (ez a Python `_scan_wake()` portja), a connect session
+  pedig nyitva tartja a discovery-t, hogy a robot **friss** ébredését kapjuk el (a
+  BlueZ gyorsítótárazott bejegyzése önmagában nem elég).
+- **A firmware-quirkök miatt sorosított kérések**: a routing nélküli generáció eldobja a
+  még folyamatban lévő kérésre érkező üzenetet → az érzékelő-kérések és az akciók is
+  külön sorban (`_queryChain` / `_actionChain`) futnak, egyenként.
+- **A GATT-write időtartam-biztosított** (`CODIE_WRITE_TIMEOUT_MS`, alap 3000 ms) — enélkül
+  egy elalvó roboton a write végtelenül függne, és az egész szerver lefagyna.
+- **Az első kérés eldobása megkerülve**: a connect után a kliens egy echo-t küld az
+  action-csatornán és egy értéktelen akku-lekérdezést a request-csatornán, így az első
+  **valódi** kérés mindig választ kap.
+- **Új, konfigurálható timeoutek** (a korábban beégetett értékek helyett):
+  `CODIE_RESPONSE_TIMEOUT_MS` (2500), `CODIE_QUERY_TIMEOUT_MS` (1200),
+  `CODIE_WRITE_TIMEOUT_MS` (3000), `CODIE_STATUS_TIMEOUT_MS` (10000).
+  A `config.js` új `registryOptions(ble)` segédje egy helyen szolgáltatja a registry
+  opcióit a szervernek és a scripteknek.
+
+### Fixed
+- **A válasz-dekódolás a routing nélküli generáción**: a dekóder 4 bájtnál többet
+  követelt, ezért a 3 bájtos (1 bájtos értéket tartalmazó) válaszokat `null`-nak
+  olvasta → a mért értékek (akku 96 %, szonár ~125 mm, fény ~4000, vonal ~93 325 135)
+  most helyesen jönnek.
+- **A kliens nem hagyatkozott a `peripheral.state`-re**: a noble a connect promise
+  feloldása **után** állítja be az állapotot, ezért a kliens saját kapcsolat-jelzőt használ
+  (a kapcsolat nem számít offline-nak, ha épp beáll).
+- **A sikertelen connect nem hagy félig állapotot**: a részleges kliens lezárása
+  időtartam-biztosított, és a `_pending` válasz-kérések a timeout után is törlődnek.
+
+### Fixed — a webes felület megbízhatósága (a „működjön hibátlanul" cél)
+- **Egy hibás BLE-csomag megszakíthatta volna az egész szervert**: a kliens
+  `error` eseménye listener nélkül **dobja** az exceptiont (Node `EventEmitter`),
+  így egy rossz csomag azonnal ledobta a webes felületet. A kliens most beépített
+  listenerrel továbbítja (`ble-error` esemény), és a registry a felülethez is
+  eljuttatja (`robot-error`).
+- **A parancsok nem hazudtak**: ha a robot nem nyugtázta a parancsot, a felület
+  mégis „OK”-t írt. Most a hiányzó nyugta (504) és a hiányzó érzékelő-válasz
+  **hiba**, amit a felület kiír; a részleges `status` továbbra is OK.
+- **A firmware eldobta a parancsokat a telemetria-poll alatt**: élőben mérve a
+  15 parancsból 1 elveszett (a lekérdezés még folyamatban volt, és a routing
+  nélküli firmware az ilyen üzenetet eldobja). A parancsok most megvárják a
+  futó lekérdezéseket (`_waitForIdleQueries`), a szóló ritmus (Morse / beépített
+  minta) alatt pedig a lekérdezések várnak a ritmusra — így a hang sem csökken ki.
+  Élőben mérve utána: 20/20 beep és 10/10 LED parancs sikeres.
+- **A megszakadt kapcsolat nem jött vissza magától**: a registry most
+  újracsatlakozik (korlátolt számú próbával, `CODIE_AUTO_RECONNECT`,
+  `CODIE_RECONNECT_ATTEMPTS`, `CODIE_RECONNECT_DELAY_MS`), és a felület
+  „újracsatlakozás…” állapotot mutat. Élőben igazolva: a BLE-kapcsolat
+  megszakítása után ~10 mp alatt újra online volt a robot.
+- **A vonal-érzékelő értéke félrevezető volt**: a routing nélküli generációban
+  nincs két 12 bites érzékelő-érték, hanem **egyetlen** 32 bites, fix-pontos
+  érték (60 élő mintában mindig `0x05xx07yy` volt a bájtminta). A kliens a
+  codiejs referencia szerinti skálát használja (2^20, küszöb 30) és
+  `{ value, level, onLine }` alakot ad vissza; a felület így „86.9 · vonalt
+  követ”-t mutat a korábbi „90179333 / 90179333” helyett.
+- **A LED-szín 1-gyel kisebb telítettséggel ment ki**: a `100 * 2,55` float-értéke
+  254,99999999999997, így a `floor` 254-et küldött a helyes 255 helyett — most
+  kerekítés (`Math.round`).
+- **A scriptek el sem indultak**: a `scripts/control.js` és `scripts/console.js`
+  a `registryOptions` segédet használta, de nem importálta → `ReferenceError`
+  minden indításkor. Javítva + új smoke-teszt (`test/scripts.test.js`).
+- **A felületen a kapcsolat állapotváltozása nem jelent meg**: a csatlakozás /
+  lekapcsolás most a státuszsorban is látszik (a korábbi „OK: …” felülírása
+  nélkül), a telemetria mellett pedig megjelenik a frissesség („frissítve: 2 mp
+  ezelőtt”), és az elavult adatok halványodnak.
+- **A generáció badge-je lekapcsoláskor „ismeretlen” lett**: a felismert
+  generáció megmarad, így a felület továbbra is mutatja, melyik robot melyik
+  protokollal beszél.
+- **Kód-review (3 subagent: backend, frontend+tesztek, dokumentáció) — a
+  talált hibák javítva:**
+  - A **write gap nem volt atomi**: két párhuzamos írás (a lekérdezési és az
+    akciósor két külön lánc) ugyanabban a milliszekundban mehetett ki, és a
+    firmware eldobta az egyiket → a slot most szinkron foglalódik. A kötelező
+    szünet csak a **routing nélküli** firmware-re érvényes (a routingos a
+    párhuzamos kéréseket bírja).
+  - A **felhasználói parancs beleszúródhatott a Morse közepébe** → a
+    felhasználói parancs most a ritmus végére vár, a ritmus saját hangjai
+    (internal) azonnal mennek ki.
+  - A **BlueZ „In Progress” hiba** (egy korábbi connect maradványa) azonnali
+    hibaként szakította meg a csatlakozást → most megvárjuk és újrapróbáljuk.
+  - A **telemetria-kör megduplázódhatott**, ha egy futó lekérés közben
+    leállították/újraindították → generációs számláló védi.
+  - A **sikertelen első connect után** nincs újracsatlakozás → most van
+    (korlátozott próbálkozásszámmal).
+  - A **vonal-érték lejárt körből** is frissíthette a telemetriát → a lejárt
+    kör értékeit eldobjuk.
+  - A **Morse gomb kétszer kezelődött** (minden kattintás hamis hiba) → a
+    generikus handler kihagyja.
+  - A **„Robotok keresése” gomb hibás scan után letiltva maradt** → most
+    visszakapcsol.
+  - A **mikrofon-figyelés a váratlan BLE-drop után örökre befagyasztotta** a
+    telemetriát → a figyelés leáll a drop-pal.
+  - A **scriptek smoke-tesztje** korlátlanul futhatott (nincs timeout) → most
+    SIGKILL-lel levágja a gyermek-folyamatot; a scan-teszt nem nyúl a rádióhoz.
+  - A `unitMs` (Morse) paraméter validálása, a `stopMicStream` 404-es
+    válasza, a `mic` esemény a leállítás után, a `status()` timeoutja után
+    érkező értékek, a halott kód (`i16`) és a `_operations` térkép tisztítása.
+
+### Added — gyorsabb érzékelő-frissítés és mikrofon-figyelés a felületen
+- **Az érzékelőadatok érzékelőnként frissülnek**: a telemetria-poll minden mérés
+  megérkezésekor eseményt küld (nem csak a teljes lekérés végén), és a poll
+  önmagát újraütemezi → a felület **~90 ms-onként** frissül, a teljes
+  4 érzékelős kör ~400 ms (a robot egy lekérdezésre ~100 ms alatt válaszol —
+  ez a hardver korlátja). A `CODIE_TELEMETRY_MS` (alapértelmezetten 250 ms) a
+  kívánt periódus; ha a robot nem bírja, a kör azonnal újraindul.
+- **A BLE-write szünet finomítható** (`CODIE_WRITE_GAP_MS`, alapértelmezetten 50 ms):
+  élőben mérve 30–150 ms között hibátlan volt (30/30 lekérdezés), a nyugtázatlan
+  (ritmus) üzeneteknél külön 150 ms érvényes, hogy a firmware ne dobja el őket.
+- **Mikrofon-figyelés a felületen**: a „Mikrofon" panel gombja elindítja a
+  figyelést, a felület szintmérőt mutat (nagyságrendi érték + csúcsjelző).
+  A robot nem hangot ad, hanem nyers erősségi értéket (0..2048) — a
+  `mic` socket-esemény szállítja (`{ address, raw, level, peak }`).
+  REST-en: `POST /api/robots/:address/mic/start` és `…/mic/stop`.
+  A figyelés periódusa `CODIE_MIC_MS` (alap 200 ms) — élőben mérve ~5 érték/mp.
+- A figyelés alatt az érzékelő-lekérések **szünetelnek** (a firmware egy
+  kérést szolgál ki egyszerre) — a felület a megmaradt értékeket stale jelöléssel
+  mutatja, és a panel ezt kiírja.
+
+### Verified (élőben, a valódi roboton, 2026-10-20)
+- A connect, a négy érzékelő, a LED-szín, a beep, az előre/fordul/stop parancs mind
+  elfogadva a routing nélküli generációjú roboton.
+- **A robot BLE-címe stabil**: ki- és bekapcsolás után is ugyanaz
+  (`00:07:80:66:F0:DA`) — a korábbi „alvás közben rotálja a BLE-címét” állítás
+  nem igaz a routing nélküli generációra (ezért az újracsatlakozás is működik).
+- **A robot töltőn van, akku nélkül** — ezért az akku-olvasat a töltő feszültsége, a
+  firmware töltő-LED-animációja felülírja a színparancsot, és a kerekek töltés közben
+  nem forognak. A mozgás- és LED-eredményeket ezzel együtt kell értékelni.
+
 ## [0.2.0] — 2026-10-20
 
 ### Added — webes vezérlő (Express.js backend, `server/`)

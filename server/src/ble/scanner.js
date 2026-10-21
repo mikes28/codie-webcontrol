@@ -186,6 +186,80 @@ export class RobotScanner {
   }
 
   /**
+   * Kapcsolatépítési session: a discovery **nyitva marad**, és minden hirdetésre
+   * meghívja a callbacket.
+   *
+   * Miért kell: a Codie egyetlen hirdetés után visszaalvik. Ha minden
+   * connect-próbához új scan-sessiont nyitnánk, a BlueZ a gyorsítótárazott
+   * (régen látott) bejegyzést adná vissza újra és újra — és soha nem érnénk el a
+   * valódi ébredést. Egy nyitva tartott sessionben viszont a következő hirdetés
+   * már a robot friss ébredése.
+   *
+   * A callbackok sorban futnak; a session a megadott ideig tart.
+   */
+  async connectSession(address, { durationMs = 10000, onPeripheral } = {}) {
+    return this._enqueue(async () => {
+      const wanted = normalizeAddress(address);
+      let chain = Promise.resolve();
+      const listener = (candidate) => {
+        if (normalizeAddress(candidate.id || candidate.address) !== wanted) return;
+        chain = chain.then(() => onPeripheral(candidate)).catch(() => {
+          /* egy sikertelen próbálkozás ne szakítsa meg a sessiont */
+        });
+      };
+      this.noble.on('discover', listener);
+      try {
+        await this._startDiscovery();
+        await sleep(durationMs);
+        await chain;
+      } finally {
+        this.noble.removeListener('discover', listener);
+        await this._stopDiscovery();
+      }
+    });
+  }
+
+  /**
+   * Felébresztő scan (a Python kliens `_scan_wake` függvényének megfelelően).
+   *
+   * Ha a connect "not found"-dal elhasal (a BlueZ még nem ismeri a címet), ez a scan
+   * felfedezi a robotot a BlueZ-ben — és közben fel is ébreszti.
+   *
+   * @returns {Promise<object|null>} a talált peripheral, vagy null
+   */
+  async wakeScan(address, { durationMs = 6000 } = {}) {
+    return this._enqueue(() => this._wakeScanOnce(address, { durationMs }));
+  }
+
+  async _wakeScanOnce(address, { durationMs }) {
+    const wanted = normalizeAddress(address);
+    let peripheral = null;
+    let resolveFound = null;
+    const found = new Promise((resolve) => {
+      resolveFound = resolve;
+    });
+    const onDiscover = (candidate) => {
+      if (normalizeAddress(candidate.id || candidate.address) !== wanted) return;
+      peripheral = candidate;
+      resolveFound(candidate);
+    };
+    this.noble.on('discover', onDiscover);
+    try {
+      await this._startDiscovery();
+      const timer = setTimeout(() => resolveFound(null), durationMs);
+      try {
+        await found;
+      } finally {
+        clearTimeout(timer);
+      }
+    } finally {
+      this.noble.removeListener('discover', onDiscover);
+      await this._stopDiscovery();
+    }
+    return peripheral;
+  }
+
+  /**
    * A discovery elindítása **időtartam-biztosított**.
    *
    * A noble a `startScanning` promise-t a binding 'scanStart' eseményéből oldja fel,

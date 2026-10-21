@@ -45,6 +45,9 @@ function buildStack() {
     filters: FILTERS,
     scanner: new FakeScanner([robot]),
     telemetryMs: 0,
+    // az újracsatlakozást a tesztben gyorsan akarjuk látni
+    reconnectDelayMs: 20,
+    reconnectAttempts: 2,
   });
   return { robot, noble, registry };
 }
@@ -189,6 +192,81 @@ test('a socket.io réteg továbbítja az eseményeket', async () => {
     io.close();
     httpServer.close();
   }
+});
+
+test('a váratlanul megszakadt kapcsolat után a registry újracsatlakozik', async () => {
+  const { registry, robot } = buildStack();
+  await registry.connect('00:07:80:66:F0:DB');
+  assert.equal(registry.get('00:07:80:66:F0:DB').connected, true);
+
+  // a link megszakad (a robot elalvelt vagy a BLE-kapcsolat szakadt meg)
+  robot.emit('disconnect', 'remote');
+  await waitFor(() => registry.get('00:07:80:66:F0:DB').reconnecting === true, 2000);
+  await waitFor(() => registry.get('00:07:80:66:F0:DB').connected === true, 5000);
+});
+
+test('a felhasználó által kért lekapcsolás nem indít újracsatlakozást', async () => {
+  const { registry } = buildStack();
+  await registry.connect('00:07:80:66:F0:DB');
+  await registry.disconnect('00:07:80:66:F0:DB');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const robot = registry.get('00:07:80:66:F0:DB');
+  assert.equal(robot.connected, false);
+  assert.equal(robot.reconnecting, false);
+});
+
+test('a felismert generáció megmarad lekapcsolás után is', async () => {
+  const { registry } = buildStack();
+  await registry.connect('00:07:80:66:F0:DB');
+  assert.equal(registry.get('00:07:80:66:F0:DB').variant, 'routing');
+  await registry.disconnect('00:07:80:66:F0:DB');
+  assert.equal(registry.get('00:07:80:66:F0:DB').variant, 'routing');
+});
+
+test('a BLE hiba a registry-n keresztül a felülethez jut', async () => {
+  const { registry } = buildStack();
+  const errors = [];
+  registry.on('robot-error', (payload) => errors.push(payload));
+  await registry.connect('00:07:80:66:F0:DB');
+  const client = registry.clientFor('00:07:80:66:F0:DB');
+  client.emit('error', new Error('hibás BLE-csomag'));
+  assert.equal(errors.length, 1, 'a BLE hiba robot-error eseményként jelenik meg');
+  assert.match(errors[0].message, /hibás BLE-csomag/);
+});
+
+test('a telemetria érzékelőnként érkezik (nem csak a teljes lekérés végén)', async () => {
+  const { registry } = buildStack();
+  await registry.connect('00:07:80:66:F0:DB');
+  const events = [];
+  registry.on('telemetry', (robot) => events.push(robot.telemetry));
+  await registry._pollTelemetry();
+  assert.ok(events.length >= 4, `minden érzékelő külön eseményt kap, mért: ${events.length}`);
+  const last = events.at(-1);
+  assert.equal(last.batteryPct, 85);
+  assert.equal(last.sonarMm, 300);
+  assert.equal(last.lightRaw, 4041);
+  assert.deepEqual(last.line, { left: 3895, right: 3808 });
+});
+
+test('a mikrofon figyelése nyers értéket és szintet ad', async () => {
+  const { registry } = buildStack();
+  await registry.connect('00:07:80:66:F0:DB');
+  const values = [];
+  registry.on('mic', (payload) => values.push(payload));
+  registry.startMicStream('00:07:80:66:F0:DB');
+  await waitFor(() => values.length > 0, 2000);
+  const value = values.at(-1);
+  assert.equal(value.address, '00:07:80:66:F0:DB');
+  assert.equal(value.raw, 633); // a hamis robot mikrofonértéke
+  assert.equal(value.level, Math.round((633 / 2048) * 100));
+  assert.ok(value.peak >= value.level - 1, 'a csúcs nem kisebb a szintnél');
+  registry.stopMicStream('00:07:80:66:F0:DB');
+  assert.equal(registry.get('00:07:80:66:F0:DB').micStreaming, false);
+});
+
+test('a mikrofon figyeléséhez csatlakoztatott robot kell', async () => {
+  const { registry } = buildStack();
+  assert.throws(() => registry.startMicStream('00:07:80:66:F0:DB'), /nincs csatlakoztatva/);
 });
 
 function waitFor(predicate, timeoutMs = 5000) {

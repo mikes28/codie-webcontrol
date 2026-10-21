@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 
 import { Server } from 'socket.io';
 
-import { config } from './config.js';
+import { config, registryOptions } from './config.js';
 import { createApp } from './app.js';
 import { attachRealtime } from './realtime.js';
 import { getNoble, ensurePoweredOn } from './ble/noble.js';
@@ -27,11 +27,7 @@ export async function startServer(options = {}) {
     new RobotRegistry({
       noble,
       filters: settings.ble,
-      connectTimeout: settings.ble.connectTimeoutMs,
-      scanWindow: settings.ble.scanWindowMs,
-      connectRetries: settings.ble.connectRetries,
-      retryDelay: settings.ble.retryDelayMs,
-      telemetryMs: settings.ble.telemetryMs,
+      ...registryOptions(settings.ble),
     });
 
   const app = createApp({ registry, filters: settings.ble });

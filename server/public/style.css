@@ -8,6 +8,7 @@
   --muted: #8b93a1;
   --accent: #4c8dff;
   --success: #30a46c;
+  --warning: #f5d90a;
   --danger: #e5484d;
 }
 
@@ -144,7 +145,58 @@ body {
   min-width: 0;
 }
 
+.robot-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .robot-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A generáció (routing / no-routing) badge-e a robot neve mellett. */
+.variant-badge {
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.variant-routing {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.variant-no-routing {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.variant-unknown {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.awake-hint {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.awake-hint strong {
+  color: var(--fg);
   font-weight: 600;
 }
 
@@ -168,6 +220,54 @@ body {
 .pill-off {
   background: color-mix(in srgb, var(--muted) 18%, transparent);
   color: var(--muted);
+}
+
+/* újracsatlakozás alatt */
+.pill-wait {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+/* elavult telemetria */
+.telemetry.stale .telemetry-item {
+  opacity: 0.55;
+}
+
+.telemetry-age {
+  margin: 6px 0 0;
+  min-height: 1.2em;
+}
+
+/* A mikrofon szintmérője */
+.mic-meter {
+  position: relative;
+  height: 16px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.mic-level {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--success), var(--warning));
+  transition: width 90ms linear;
+}
+
+.mic-peak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--fg);
+}
+
+.mic-hint {
+  margin: 6px 0 0;
+  min-height: 1.2em;
 }
 
 .telemetry {

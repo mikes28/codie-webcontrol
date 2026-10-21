@@ -58,17 +58,27 @@ export function formatRobotTable(robots) {
   return [line(headers), line(widths.map((w) => '-'.repeat(w))), ...rows.map(line)].join('\n');
 }
 
+/**
+ * A vonal-érték kiírása — a generációtól függően más alakú:
+ *  - routing: bal/jobb (12 bites értékek);
+ *  - routing nélküli: egyetlen fix-pontos érték (level + „vonalt követ”).
+ */
+export function formatLine(line) {
+  if (!line) return 'vonal: -';
+  if (typeof line.level === 'number') {
+    return `vonal: ${line.level} (${line.onLine ? 'vonalt követ' : 'vonal nélkül'})`;
+  }
+  return `vonal bal=${line.left ?? '?'} jobb=${line.right ?? '?'}`;
+}
+
 /** Telemetria kiírása olvashatóan. */
 export function formatTelemetry(telemetry) {
   if (!telemetry) return 'Nincs telemetria.';
-  const line = telemetry.line
-    ? `vonal bal=${telemetry.line.left ?? '?'} jobb=${telemetry.line.right ?? '?'}`
-    : 'vonal: -';
   return [
     `akku: ${telemetry.batteryPct ?? '?'}%`,
     `szonár: ${telemetry.sonarMm ?? '?'} mm`,
     `fény: ${telemetry.lightRaw ?? '?'}`,
-    line,
+    formatLine(telemetry.line),
   ].join(' | ');
 }
 

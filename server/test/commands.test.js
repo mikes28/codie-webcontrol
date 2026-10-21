@@ -7,9 +7,10 @@ import { runCommand } from '../src/commands.js';
 
 function fakeClient() {
   const calls = [];
+  // a valódi kliens a nyugtát adja vissza (a parancsréteg ezt ellenőrzi)
   const record = (name) => async (...args) => {
     calls.push([name, ...args]);
-    return null;
+    return { ok: true };
   };
   return {
     calls,
@@ -25,7 +26,7 @@ function fakeClient() {
     // a valódi kliensben a stop() a driveSpeed(0, 0)-at hívja
     stop: async () => {
       calls.push(['driveSpeed', 0, 0]);
-      return null;
+      return { ok: true };
     },
     status: async () => ({ batteryPct: 88, sonarMm: 320, lightRaw: 100, line: { left: 1, right: 2 } }),
     battery: async () => 88,
@@ -100,7 +101,16 @@ test('a beep időtartalma 1..10000 ms közé vág', async () => {
 test('a Morse-szöveg továbbad', async () => {
   const client = fakeClient();
   await runCommand(client, 'morse', { text: 'SOS' });
-  assert.deepEqual(client.calls, [['playMorse', 'SOS', undefined]]);
+  assert.deepEqual(client.calls, [['playMorse', 'SOS', 120]]);
+});
+
+test('a Morse unit paramétere hibás értéknél hibát dob', async () => {
+  const client = fakeClient();
+  await assert.rejects(() => runCommand(client, 'morse', { text: 'SOS', unitMs: 'abc' }), /véges szám/);
+  assert.deepEqual(client.calls, [], 'egyetlen parancs se indult el');
+  // a túl kicsi érték vágva van (nem hiba), mint a többi számparaméter
+  await runCommand(client, 'morse', { text: 'SOS', unitMs: 1 });
+  assert.deepEqual(client.calls, [['playMorse', 'SOS', 10]]);
 });
 
 test('az ismeretlen parancs hibát dob', async () => {
@@ -115,4 +125,57 @@ test('a nem számértékű paraméter hibát dob (nem csendben 0 lesz)', async (
   await assert.rejects(() => runCommand(client, 'turn', { degrees: 'abc' }), /véges szám/);
   await assert.rejects(() => runCommand(client, 'ledSingle', { color: 'red', index: 'x' }), /véges szám/);
   assert.deepEqual(client.calls, [], 'egyetlen parancs se indult el');
+});
+
+test('a hiányzó nyugta hibát dob (a felületen nem "OK" jelenik meg)', async () => {
+  const client = fakeClient();
+  client.beep = async () => null; // a robot nem válaszolt
+  await assert.rejects(() => runCommand(client, 'beep', { ms: 500 }), /nem nyugtázta/);
+
+  const led = fakeClient();
+  led.ledAll = async () => null;
+  await assert.rejects(() => runCommand(led, 'led', { color: 'red' }), /nem nyugtázta/);
+
+  const move = fakeClient();
+  move.driveDistance = async () => null;
+  await assert.rejects(() => runCommand(move, 'forward', { cm: 10 }), /nem nyugtázta/);
+});
+
+test('a hiányzó érzékelő-válasz hibát dob', async () => {
+  const client = fakeClient();
+  client.sonar = async () => null;
+  await assert.rejects(() => runCommand(client, 'sonar', {}), /nem válaszolt/);
+
+  const battery = fakeClient();
+  battery.battery = async () => null;
+  await assert.rejects(() => runCommand(battery, 'battery', {}), /nem válaszolt/);
+});
+
+test('a részleges státusz nem hiba, de az üres státusz az', async () => {
+  const partial = fakeClient();
+  partial.status = async () => ({ batteryPct: 88, sonarMm: null, lightRaw: null, line: null });
+  const result = await runCommand(partial, 'status', {});
+  assert.equal(result.status.batteryPct, 88);
+
+  const empty = fakeClient();
+  empty.status = async () => ({ batteryPct: null, sonarMm: null, lightRaw: null, line: null });
+  await assert.rejects(() => runCommand(empty, 'status', {}), /egyetlen érzékelő/);
+});
+
+test('a morse és a tune nem vár nyugtára (fire-and-forget)', async () => {
+  const client = fakeClient();
+  client.playMorse = async (...args) => {
+    client.calls.push(['playMorse', ...args]);
+    return undefined;
+  };
+  client.playTune = async (...args) => {
+    client.calls.push(['playTune', ...args]);
+    return undefined;
+  };
+  await runCommand(client, 'morse', { text: 'SOS' });
+  await runCommand(client, 'tune', { name: 'shave_haircut' });
+  assert.deepEqual(client.calls, [
+    ['playMorse', 'SOS', 120],
+    ['playTune', 'shave_haircut'],
+  ]);
 });

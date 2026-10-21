@@ -11,10 +11,10 @@
  * API és a konzol is használ.
  */
 
-import { config } from '../src/config.js';
+import { config, registryOptions } from '../src/config.js';
 import { getNoble, ensurePoweredOn } from '../src/ble/noble.js';
 import { RobotRegistry } from '../src/ble/registry.js';
-import { parseArgs, flagEnabled, formatTelemetry, finish } from '../src/cli.js';
+import { parseArgs, formatTelemetry, finish } from '../src/cli.js';
 
 const { _: positional, flags } = parseArgs(process.argv.slice(2));
 
@@ -31,10 +31,7 @@ const args = positional.slice(1);
 const registry = new RobotRegistry({
   noble: getNoble({ adapterId: config.ble.adapterId }),
   filters: config.ble,
-  connectTimeout: config.ble.connectTimeoutMs,
-  scanWindow: config.ble.scanWindowMs,
-  connectRetries: config.ble.connectRetries,
-  retryDelay: config.ble.retryDelayMs,
+  ...registryOptions(config.ble),
   telemetryMs: 0,
 });
 

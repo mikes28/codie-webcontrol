@@ -48,8 +48,9 @@ A szűrő két "identity" jelet használ, plusz egy opcionális MAC-allowlistet:
 | MAC-allowlist | ha `CODIE_MAC_ALLOWLIST` nem üres, csak az abban lévő címek jöhetnek át |
 | `CODIE_MAC_ONLY=1` | az allowlist önmagában is elég (a név/UUID-ellenőrzés kimarad) |
 
-> A robot random (privát) BLE-címet használ, és idővel elalszik. A scan felébreszti,
-> ezért a keresés hosszabb ablakot érdemes használni, mint gondolnád.
+> A routing nélküli generáció robotjának BLE-címe **stabil** (ki- és bekapcsolás
+> után is ugyanaz), és idővel elalszik. A scan felébreszti, ezért a keresés hosszabb
+> ablakot érdemes használni, mint gondolnád.
 
 ### A robot alvás közben
 
@@ -65,7 +66,11 @@ Ezért:
   (`CODIE_CONNECT_TIMEOUT_MS` × `CODIE_CONNECT_RETRIES`), közben a BlueZ a háttérben
   újrapróbálkozik — amikor a robot felébred, a kapcsolat feláll;
 - a scan **mindig** találatot ad (a BlueZ gyorsítótárazott bejegyzését is), de ez még
-  nem jelent élő kapcsolatot.
+  nem jelent élő kapcsolatot;
+- ha a kapcsolat **már létrejött**, majd megszakadt, a registry **újracsatlakozik**
+  (`CODIE_AUTO_RECONNECT=1`, `CODIE_RECONNECT_ATTEMPTS=3`,
+  `CODIE_RECONNECT_DELAY_MS=5000`), és a felület „újracsatlakozás…” állapotot mutat.
+  A felhasználó által kért lekapcsolás nem indít újracsatlakozást.
 
 ## Scriptek (újrahasznosítható modulokra épülnek)
 
@@ -81,21 +86,53 @@ A `console.js` parancsai: `help`, `scan`, `robots`, `connect <cím>`, `disconnec
 `leds off`, `beep [ms]`, `morse <szöveg>`, `tune <név>`, `forward [cm]`,
 `backward [cm]`, `turn <fok>`, `stop`, `quit`.
 
+## Élő érzékelőadatok és a mikrofon
+
+A telemetria **érzékelőnként** érkezik: amikor egy mérés megérkezik, a szerver
+azonnal kiküldi (`telemetry` esemény), nem pedig a teljes lekérés végén. A
+felület így **~90 ms-onként** frissül; a teljes 4 érzékelős kör ~400 ms, mert a
+robot egy lekérdezésre ~100 ms alatt válaszol (ez hardver-korlát).
+
+| Beállítás | Alapértelmezett | Jelentés |
+|---|---|---|
+| `CODIE_TELEMETRY_MS` | 250 | a telemetria-kör kívánt periódusa (a robot sebessége a korlát) |
+| `CODIE_MIC_MS` | 200 | a mikrofon figyelésének periódusa |
+| `CODIE_WRITE_GAP_MS` | 50 | kötelező szünet két BLE-üzenet között (a nyugtázatlan ritmusüzeneteknél 150 ms) |
+| `CODIE_AUTO_RECONNECT` | 1 | újracsatlakozás a váratlanul megszakadt kapcsolat után |
+| `CODIE_RECONNECT_ATTEMPTS` | 3 | hány próbálkozás a megszakadás után |
+| `CODIE_RECONNECT_DELAY_MS` | 5000 | várakozás az újracsatlakozási próbálkozások között |
+
+### Mikrofon
+
+A robot mikrofonja **nem hangot ad**, hanem nyers erősségi értéket (0..2048) —
+a felület ezt egy szintmérővel mutatja. A figyelés a felület „Mikrofon” gombjával
+indítható (`mic:start` socket-esemény vagy `POST /api/robots/:address/mic/start`),
+leállítható (`mic:stop` / `…/mic/stop`).
+
+A figyelés alatt az érzékelő-lekérések **szünetelnek**: a routing nélküli
+firmware egy kérést szolgál ki egyszerre, és a kettő együtt torlasztaná
+egymást. A felület a megmaradt érzékelőértékeket stale jelöléssel mutatja.
+
 ## Több robot
 
 A `RobotRegistry` (`src/ble/registry.js`) robotonként egy-egy `CodieClient`-et tart
 (saját BLE-kapcsolat), így több robot is fut egyszerre. Minden robot kap:
 
 - saját kapcsolat (`connect` / `disconnect`);
-- saját telemetria-poll (alapértelmezetten 5 mp, `CODIE_TELEMETRY_MS`);
-- a `scan` találatok automatikusan bekerülnek a registry-be, connect nélkül is.
+- saját telemetria-poll (alapértelmezetten 250 ms, `CODIE_TELEMETRY_MS` — a kör
+  önmagát újraütemezi, így a felület ~90 ms-onként frissül);
+- a `scan` találatok automatikusan bekerülnek a registry-be, connect nélkül is;
+- a felismert **generáció** (`variant`: `routing` / `no-routing`) megmarad
+  lekapcsolás után is;
+- az újracsatlakozás (`reconnecting`) és a mikrofon figyelése (`micStreaming`)
+  állapota is a leírásban látszik.
 
 ## REST API
 
 | Végpont | Metódus | Leírás |
 |---|---|---|
 | `/api/health` | GET | él-e a szerver |
-| `/api/config` | GET | a szűrő és a parancsnevek |
+| `/api/config` | GET | a szűrő, a parancsnevek és a támogatott generációk |
 | `/api/robots` | GET | az ismert robotok + telemetria |
 | `/api/robots/:address` | GET | egy robot |
 | `/api/scan` | POST | `{ durationMs? }` → robotok keresése |
@@ -103,6 +140,8 @@ A `RobotRegistry` (`src/ble/registry.js`) robotonként egy-egy `CodieClient`-et 
 | `/api/robots/:address/disconnect` | POST | lekapcsolás |
 | `/api/robots/:address/command` | POST | `{ name, params }` → parancs |
 | `/api/robots/:address/telemetry` | GET | az utolsó telemetria |
+| `/api/robots/:address/mic/start` | POST | a mikrofon figyelésének indítása |
+| `/api/robots/:address/mic/stop` | POST | a mikrofon figyelésének leállítása |
 
 A `name` a `src/commands.js` parancsneve: `beep`, `morse`, `tune`, `led`, `ledSingle`,
 `ledsOff`, `forward`, `backward`, `turn`, `stop`, `status`, `battery`, `sonar`, `light`,
@@ -116,6 +155,20 @@ curl -X POST localhost:3000/api/robots/00:07:80:66:F0:DB/command \
   -d '{"name":"led","params":{"color":"red"}}'
 ```
 
+Hibaválaszok (a felület ezeket kiírja — nincs hamis „OK”):
+
+| Státusz | Jelentés |
+|---|---|
+| 400 | hibás paraméter (pl. nem szám a `cm`) |
+| 404 | ismeretlen robot cím |
+| 409 | a robot nincs csatlakoztatva |
+| 504 | a robot nem nyugtázta a parancsot / nem válaszolt az érzékelő kérésre |
+| 503 | a robot nem érhető el (alvó, vagy a connect timeoutolt) |
+
+> A vonal-érték alakja generációfüggő: a routingos generációban
+> `{ left, right }` (12 bites értékek), a routing nélküliben
+> `{ value, level, onLine }` (egyetlen fix-pontos érték, a codiejs skálája).
+
 ## socket.io
 
 A szerver a registry eseményeit minden kliensnek továbbítja:
@@ -127,11 +180,15 @@ A szerver a registry eseményeit minden kliensnek továbbítja:
 | szerver → kliens | `scan` | `{ robots: [...] }` — keresési eredmény |
 | szerver → kliens | `telemetry` | egy robot + az utolsó szenzorértékek |
 | szerver → kliens | `command-result` | `{ action, ... }` |
-| szerver → kliens | `error` | `{ message }` |
+| szerver → kliens | `error` | `{ message }` — a parancs hibája |
+| szerver → kliens | `robot-error` | `{ address, message }` — a BLE réteg hibája (megszakadt kapcsolat, hibás csomag) |
+| szerver → kliens | `mic` | `{ address, raw, level, peak }` — a mikrofon erősségi értéke |
 | kliens → szerver | `scan:request` | `{ durationMs? }` |
 | kliens → szerver | `robot:connect` | `{ address }` |
 | kliens → szerver | `robot:disconnect` | `{ address }` |
 | kliens → szerver | `robot:command` | `{ address, name, params }` |
+| kliens → szerver | `mic:start` | `{ address }` — a mikrofon figyelésének indítása |
+| kliens → szerver | `mic:stop` | `{ address }` — a mikrofon figyelésének leállítása |
 
 ## Felépítés
 
@@ -144,7 +201,8 @@ src/
   morse.js, tunes.js, cli.js
   ble/
     protocol.js     wire-protokoll (a Python protocol.py portja)
-    client.js       CodieClient — egy robot BLE-kapcsolata
+    protocol-norrouting.js  a routing nélküli generáció protokollja (a codiejs portja)
+    client.js       CodieClient — egy robot BLE-kapcsolata (mindkét generáció)
     scanner.js      robot-szűrő + scan (a nem-robot eszközöket kiszűri)
     registry.js     több robot kezelése
     noble.js        BlueZ D-Bus binding példány + cím-formázás
@@ -164,5 +222,9 @@ npm test
 - `protocol.test.js` — a wire-protokoll unit tesztje
 - `parity.test.js` — a JS port és a Python referencia byte-paritása (python3 kell hozzá)
 - `scanner.test.js` — a robot-szűrő (a nem-robot eszközök kiszűrése)
-- `commands.test.js` — a parancsszemantika (irányjelek, vágások)
+- `commands.test.js` — a parancsszemantika (irányjelek, vágások, a hiányzó nyugta hibája)
+- `client.test.js` — a BLE kliens viselkedése (ritmus-időzítés, hibás csomag, timeout-ok)
+- `norrouting.test.js` — a routing nélküli generáció (a codiejs protokollja, a firmware-quirkök)
+- `e2e.test.js` — végponttól végpontig a hamis robottal (scan → connect → parancs → REST → socket)
 - `api.test.js` — a REST API hamis registry-vel
+- `scripts.test.js` — a scriptek smoke-tesztje (a modulok betöltődnek)

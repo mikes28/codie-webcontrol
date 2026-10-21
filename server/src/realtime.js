@@ -50,6 +50,23 @@ export function attachRealtime({ io, registry }) {
         socket.emit('error', { message: error.message });
       }
     });
+
+    // a mikrofon figyelésének indítása/leállítása (a felület szintmérője)
+    socket.on('mic:start', (payload = {}) => {
+      try {
+        registry.startMicStream(payload.address);
+      } catch (error) {
+        socket.emit('error', { message: error.message });
+      }
+    });
+
+    socket.on('mic:stop', (payload = {}) => {
+      try {
+        registry.stopMicStream(payload.address);
+      } catch (error) {
+        socket.emit('error', { message: error.message });
+      }
+    });
   });
 
   // A registry eseményei -> minden csatlakozott kliens.
@@ -58,6 +75,11 @@ export function attachRealtime({ io, registry }) {
   registry.on('telemetry', (robot) => io.emit('telemetry', robot));
   // a REST-en kiadott parancs eredménye is menjen a socketre
   registry.on('command', (result) => io.emit('command-result', result));
+  // a BLE réteg hibái (hibás csomag, megszakadt kapcsolat) — ezeket a felületnek
+  // is látnia kell, nem csak a szerver naplójában
+  registry.on('robot-error', (payload) => io.emit('robot-error', payload));
+  // a mikrofon értékei (a felület szintmérője)
+  registry.on('mic', (payload) => io.emit('mic', payload));
 
   return { io };
 }

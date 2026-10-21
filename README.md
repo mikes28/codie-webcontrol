@@ -11,7 +11,8 @@ ami 2019-ben hiányzott (PC-oldali BLE út), Linuxon triviális.
 
 A protokoll- és hardverrészletek a [CLAUDE.md](CLAUDE.md)-ben; a fejlődési napló a
 [MEMORY.md](MEMORY.md)-ben; a verziónkénti változások a [CHANGELOG.md](CHANGELOG.md)-ben.
-Aktuális verzió: **v0.9.0** (MCP szerver a Hermes-integrációhoz + robusztus, elalvás-tűrő connect).
+Aktuális verzió: **v0.11.0** (webes vezérlő Express.js backendrel, a második Codie-generáció
+támogatásával, élő érzékelőadatokkal és mikrofon-figyeléssel).
 
 ## Projekt struktúra
 
@@ -30,15 +31,34 @@ scripts/
   play.py             ritmus / Morse / beep CLI
   fft_pitch.py        hangfelvétel domináns frekvenciája (FFT)
   verify_directions.py  mozgásirányok élő igazolása
-tests/            protokoll + Morse + MCP smoke (27 unit teszt)
+tests/            protokoll + Morse + MCP smoke (30 unit teszt)
 server/           Express + socket.io web-backend (JS), több robot, robot-szűrő
-  src/ble/        protocol.js, client.js, scanner.js, registry.js (noble/BlueZ)
+  src/ble/        protocol.js, protocol-norrouting.js, client.js, scanner.js,
+                  registry.js, noble.js (noble/BlueZ)
   scripts/        scan.js, control.js, console.js
   public/         a webes felület
+  test/           105 unit + e2e teszt (protokoll, paritás, API, scriptek)
 docs/comApi.h     hivatalos Codie BLE API header (referencia)
 ```
 
-## Teszt eredmények (2026-07-07 — minden funkció élőben igazolva)
+> **Két Codie-generáció van.** A Python package (`codie/`) a **routingos** generációt
+> beszél (`52af0001-…` UUID-k, `INFO|SEQ|CMD|ARGLEN` frame). A második, **routing nélküli**
+> generációt (`d46e7e53-…`, négy karakterisztika) a **JS web-backend** kezeli — a
+> kliens a GATT-elrendezésből automatikusan felismeri, melyikkel van szó.
+
+## Teszt eredmények
+
+### 2026-10-20 — routing nélküli generáció (a JS web-backenddel)
+
+| Kategória | Funkció | Állapot |
+|-----------|---------|---------|
+| Kapcsolat | connect (cím alapján), váratlan megszakadás után újracsatlakozás | ✅ ~10 mp alatt újra online |
+| Szenzor | akku, szonár, fény, vonal, mikrofon | ✅ élő értékek, ~90 ms-onként frissülő kijelző |
+| Hang | beep (hangerő + frekvencia + időtartam), Morse, beépített ritmus | ✅ a megfelelő időzítéssel |
+| Mozgás | DriveSpeed, DriveDistance, DriveTurn | ✅ a robot elfogadja (20/20 beep, 10/10 LED parancs hibátlan) |
+| Fény | LedSetColor (a firmware skáláján, pontos bájtokkal) | ✅ a robot elfogadja |
+
+### 2026-07-07 — routingos generáció (a Python klienssel)
 
 | Kategória | Funkció | Állapot |
 |-----------|---------|---------|
@@ -64,7 +84,11 @@ A robot címét megtalálod:
 bluetoothctl scan le      # keresd a "Codie" nevű eszközt
 ```
 
-## Használat
+> **A Python kliens a routingos generációhoz tartozik** (`codie/protocol.py`).
+> A routing nélküli generációhoz a `server/` web-backendot használd — az mindkettőt
+> beszél. A `CODIE_ADDRESS` a routingos robot címét tartalmazza.
+
+## Használat (Python kliens — routingos generáció)
 
 ```python
 import asyncio
@@ -104,6 +128,16 @@ cd server
 npm install
 npm start          # http://localhost:3000 — webes felület + REST + socket.io
 ```
+
+A felületen:
+
+- **élő érzékelőadatok** — a telemetria érzékelőnként érkezik, a kijelző ~90 ms-onként
+  frissül (a robot egy lekérdezésre ~100 ms alatt válaszol, így a teljes
+  4 érzékelős kör ~400 ms);
+- **mikrofon-figyelés** — a robot nyers erősségi értékét szintmérő mutatja;
+- **automatikus újracsatlakozás**, ha a BLE-kapcsolat megszakad (a robot elalvása után);
+- **a hibák valódi hibák** — ha a robot nem nyugtázta a parancsot, a felület hibát ír
+  (nem hamis „OK”-t).
 
 A hálózati réteg újrahasznosítható modulokra épül, így a frontend később
 tetszőlegesen átírható:

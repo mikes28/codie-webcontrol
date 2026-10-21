@@ -5,6 +5,61 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ---
 
+## 2026-10-20 — A webes felület megbízhatósága (a második Codie-generációval)
+
+- **Kérés:** „működjön a Bluetooth a weboldalon hiba nélkül”. A v0.11.0 (a második
+  generáció támogatása) után a felületet végigellenőrizve a valódi roboton.
+- **A robot BLE-címe stabil** (a felhasználó ki/bekapcsolta, és ugyanaz a cím maradt):
+  `00:07:80:66:F0:DA`. A korábbi „alvás közben rotálja a BLE-címét” állítás erre a
+  generációra nem igaz → a háttérben futó **újracsatlakozás** is működik.
+- **A valódi hibák, amiket a felület mutatott:**
+  1. A kliens `error` eseménye listener nélkül **dobott** (Node `EventEmitter`) → egy
+     hibás BLE-csomag ledobta volna az egész szervert. Javítás: beépített listener →
+     `ble-error` esemény → `robot-error` a socketen → a felület kiírja.
+  2. A parancsok **hamis „OK”-t** írtak, ha a robot nem nyugtázott. Javítás: a hiányzó
+     nyugta (504) és a hiányzó érzékelő-válasz hiba; a részleges `status` továbbra is OK.
+  3. **A firmware eldobta a parancsokat a telemetria-poll alatt** (15 parancsból 1
+     elveszett): a routing nélküli firmware az üzenetet eldobja, ha egy kérés még
+     folyamatban van. Javítás: a parancs megvárja a futó lekérdezéseket; a szóló
+     ritmus alatt a lekérdezések várnak a ritmusra (nincs deadlock: a ritmus nem
+     vár a lekérdezésekre). Utána: 20/20 beep, 10/10 LED sikeres.
+  4. A megszakadt kapcsolat nem jött vissza: a registry most korlátoltan újracsatlakozik
+     (`CODIE_AUTO_RECONNECT` & co.), a felület „újracsatlakozás…” állapotot mutat.
+     Élőben igazolt: a BLE link megszakítása után ~10 mp alatt újra online.
+  5. A **vonal-érzékelő** értéke félrevezető volt (a 32 bites fix-pontos értéket duplán
+     mutatta bal/jobbként). 60 élő mintában a bájtminta mindig `0x05xx07yy` volt →
+     egyetlen érték, nem két érzékelő. A codiejs referencia skálája (2^20, küszöb 30)
+     szerint most `{ value, level, onLine }` → a felület „86.9 · vonalt követ”-et mutat.
+  6. A LED-szín sat/val 1-gyel kisebb volt (a `100 * 2,55` float-lezárása) → `Math.round`.
+  7. A `scripts/control.js` és `scripts/console.js` **el sem indult**: a `registryOptions`
+     segédet használták, de nem importálták (`ReferenceError`). Javítva + smoke-teszt.
+- **A felület további finomításai:** a generáció badge-je megmarad lekapcsolás után,
+  a kapcsolat állapotváltozása a státuszsorban is látszik, a telemetria mellett a
+  frissesség is megjelenik („frissítve: 2 mp ezelőtt”), az elavult adatok halványodnak.
+- **Gyorsabb érzékelő-frissítés (a felhasználó kérése, ~250 ms):** a telemetria most
+  **érzékelőnként** érkezik (minden mérés megérkezésekor esemény), és a poll önmagát
+  újraütemezi → a felület **~90 ms-onként** frissül. A korlát a robot: egy lekérdezésre
+  ~90–100 ms alatt válaszol, így a teljes 4 érzékelős kör ~400 ms (ez hardver-korlát,
+  nem szoftver). A `CODIE_WRITE_GAP_MS` (alap 50 ms) finomíthatja: élőben mérve 30 ms
+  is hibátlan volt, de a **nyugtázatlan** (Morse/ritmus) üzeneteknél 150 ms kell.
+- **Mikrofon a felületen:** a robot nem hangot ad, hanem nyers erősségi értéket
+  (0..2048) — a felület szintmérőt mutat. A figyelés ~5 érték/mp, és **alatta az
+  érzékelő-lekérések szünetelnek** (a firmware egy kérést szolgál ki egyszerre).
+  Fontos: a mikrofon-poll **nem** gyűjthet sorba kéréseket (a sor eltorlasztotta a
+  telemetriát is) — egyszerre csak egy lekérdezés lehet a rádión.
+- **A vonal-érték értelmezése (routing nélküli generáció) — nyitott kérdés:** a
+  4 bájtos válasz **egyetlen** szám (60 élő mintában mindig `0x05xx07yy` volt a
+  bájtminta, két független érzékelőt kizár). A codiejs referencia 2^20-zal osztja
+  és 30 felett „vonalt követ”-nek tekinti — ezt követtük (`{value, level, onLine}`).
+  Élőben: a robot mozgatásakor a nyers érték 90 millióról 13 millióra esett, és a
+  `onLine` jelző helyesen váltott (true → false) — tehát a jel **nem** véletlen
+  szám, hanem a robot állapotától függ. A fizikai jelentése (pontosan mi) még
+  nincs bizonyítva; a nyers `value` minden esetben elérhető az API-n.
+- **Tanulság:** a „működik" és a „hiba nélkül működik" két külön dolog — a hamis
+  „OK"-k és a néma hibák miatt a felület sokáig nézett egészségesnek.
+
+---
+
 ## 2026-10-20 — Webes vezérlő (Express.js backend)
 
 - **Kérés:** a repóból weboldal legyen — Express.js backend a robothoz, több robot BT-en,
@@ -18,11 +73,15 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
   plusz opcionális **MAC-allowlist** (`CODIE_MAC_ALLOWLIST`, `CODIE_MAC_ONLY`).
   Élőben igazolva: a környezetben 8+ más BLE eszköz van (fehallgatók, telefonok, karika),
   a scan **csak a robotot** adja vissza.
-- **A robot viselkedése (fontos!):** random BLE-cím, és **egyetlen hirdetés után visszaalvik**;
-  5 perc alatt egyszer jelent meg. Alvás közben a BlueZ `Connect()`-je nem fejeződik be
+- **A robot viselkedése (fontos!):** **egyetlen hirdetés után visszaalvik**; 5 perc alatt
+  egyszer jelent meg. Alvás közben a BlueZ `Connect()`-je nem fejeződik be
   (a `bluetoothctl` is csak "Attempting to connect"-et ír) → **a robotnak ébren kell lennie
   (gombnyomás) a csatlakozáshoz**. Ez hardver-korlát, nem szoftverbug: a Python (bleak)
   referencia pontosan ugyanígy elhasal (`BleakDeviceNotFoundError`).
+  **Frissítés (2026-10-20):** a routing nélküli generáció BLE-címe **stabil** — a robot
+  ki- és bekapcsolás után is ugyanaz a cím (`00:07:80:66:F0:DA`) marad, nem rotálódik.
+  (Az „alvás közben rotálja a BLE-címét" állítás erre a generációra nem igaz.) Ezért
+  a háttérben futó újracsatlakozás is működik: a cím alapján lehet csatlakozni.
 - **Négy valódi bug, amit a munka során találtunk:**
   1. A sikertelen connect **lezárása** (`disconnectAsync`) elakadhat — a BlueZ egy félbehagyott
      connectre nem válaszol azonnal. Javítás: időtartam-biztosított takarítás.
@@ -46,9 +105,11 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
   ezen a firmware-en sosem jön → minden telemetria-kör 2,5 mp stall. A tanulság: a **portok**
   (Python→JS) a legveszélyesebbek — az `asyncio.sleep` másodperc, a `setTimeout` ezredmásodperc.
 - **Hamis robot** (`server/test/fake-robot.js`): a teljes szoftverstack (scan → szűrés →
-  connect → parancs → telemetria → REST → socket.io) futtatható hardver nélkül — 60 teszt.
-- **Nyitott:** a robot élő, teljes körű (szenzor/LED/beep) igazolása a *valódi* hardveren —
-  ehhez a robotnak ébren kell lennie.
+  connect → parancs → telemetria → REST → socket.io) futtatható hardver nélkül — 105 teszt
+  (2026-10-20; a routing nélküli generációhoz külön `fake-robot-norrouting.js`).
+- **A robot élő, teljes körű igazolása megtörtént** (2026-10-20, a routing nélküli
+  generáción): connect, a négy érzékelő, a LED-szín, a beep, az előre/fordul/stop elfogadva;
+  20/20 beep és 10/10 LED parancs hibátlan. A részletek a napló elején.
 
 ---
 
@@ -228,8 +289,10 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
   parancs-ID-k 0x1060/0x1064/0x1065/0x1069; routingos frame (INFO 0x40). Forrás: a forkolt Java-repo +
   a hivatalos `Codie BLE API v1.0.pdf`. Szenzor: battery + sonar; **giroszkó itt SINCS** (3. független
   megerősítés). Platform: ESP32/HA (a mienk Pi5/Python/MCP) — kész referencia Home Assistant-integrációhoz.
-- **KÉT Codie-generáció, most behatárolva:** routingos (comApi.h v1.0) = **a mi robotunk = pipacsba**
-  (52af UUID-k, fix buzzer) vs routing nélküli = zbettenbuk/codiejs (más UUID-k, frekvenciás beep).
+- **KÉT Codie-generáció, most behatárolva:** routingos (comApi.h v1.0) = a **pipacsba** robot
+  (52af UUID-k, fix buzzer) — ezt beszéli a Python kliens (`codie/`); routing nélküli =
+  zbettenbuk/codiejs (más UUID-k, frekvenciás beep) — ezt beszéli a **JS web-backend** (`server/`),
+  és **ez a robot van nálunk most** (`00:07:80:66:F0:DA`, 2026-10-20).
 
 **Forkok átnézve (2026-07-07, Sonnet-subagentekkel) — nincs hasznos módosítás:**
 - Az összes eddigi repo forkja. Csak kettőnek van saját commitja, mindkettő `GyroLand`-tól

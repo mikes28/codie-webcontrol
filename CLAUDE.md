@@ -21,9 +21,12 @@ fogadott és végrehajtott parancsot (SpeakBeep) — ismételhetően igazolva. K
 **hivatalos Codie BLE API v1.0** dokumentáció + `comApi.h` (lásd `docs/comApi.h`), amely a
 visszafejtett protokollt teljesen igazolta (egy hibát is feltárt: a HSV 0-255, nem 0-100).
 
-**Jelenlegi állapot (v0.2.0):** működő Python package (`CodieClient`), minden funkció élőben
+**Jelenlegi állapot (v0.3.0):** működő Python package (`CodieClient`), minden funkció élőben
 igazolva (szenzorok, hang, mozgás, LED), hang/ritmus/Morse réteg, FFT-alapú frekvenciamérés
-(a csipogó ~2483 Hz-es önrezgő buzzer), és egy MCP szerver a Hermes-integrációhoz. A verziózás
+(a csipogó ~2483 Hz-es önrezgő buzzer), egy MCP szerver a Hermes-integrációhoz, és egy
+**Express.js web-backend** (`server/`), amely **mindkét Codie-generációt** beszél
+(a routingost a Python-egyben, a routing nélkülit a JS-ben), élő érzékelőadatokkal,
+mikrofon-figyeléssel és automatikus újracsatlakozással. A verziózás
 semver + git tag + GitHub release; a projekt privát repóban: `github.com/sanchomuzax/codie`.
 
 ## Projekt struktúra
@@ -39,7 +42,7 @@ semver + git tag + GitHub release; a projekt privát repóban: `github.com/sanch
 `battery.py` (akku trend), `mic_beep.py` (mic hallja a beepet), `play.py` (ritmus/Morse/beep CLI),
 `fft_pitch.py` (FFT frekvencia), `verify_directions.py` (mozgásirány-igazolás).
 
-**Tesztek (`tests/`):** protokoll + Morse + MCP smoke — 27 unit teszt, robot nélkül futtatható.
+**Tesztek (`tests/`):** protokoll + Morse + MCP smoke — 30 unit teszt, robot nélkül futtatható.
 **Hermes skill (`hermes/skills/robotics/codie-robot/SKILL.md`):** playbook az agentnek — mikor/hogyan
 használja a `mcp_codie_*` toolokat (érzékelés, véges mozgás, buktatók, biztonság).
 **Docs:** `docs/comApi.h` (hivatalos header), `CHANGELOG.md`, `VERSION`.
@@ -47,28 +50,55 @@ használja a `mcp_codie_*` toolokat (érzékelés, véges mozgás, buktatók, bi
 **Web-backend (`server/`, Node.js):**
 - `src/ble/protocol.js` — a `protocol.py` 1:1 JS portja (frame, parancs-ID-k, HSV 0-255).
   A `test/parity.test.js` bájtra bájtra összeveti a Python referenciával.
+- `src/ble/protocol-norrouting.js` — a **routing nélküli** generáció protokollja
+  (a codiejs portja): `SEQ|CMD|ARG` frame, négy karakterisztika, `decodeLine()`.
 - `src/ble/client.js` — `CodieClient` (noble/BlueZ D-Bus): connect retry + scanablak,
-  notify-feliratkozás, SEQ↔REQSEQ párosítás, aktuátor- és szenzormetódusok.
+  notify-feliratkozás, SEQ↔REQSEQ párosítás, aktuátor- és szenzormetódusok,
+  **generáció-felismerés** a GATT-elrendezésből, hibás csomag → `ble-error`
+  (nem öli meg a szervert), a firmware-quirk miatt sorosított kérések.
 - `src/ble/scanner.js` — robot-felderítés **szűréssel** (név / hirdetett UUID / MAC-allowlist);
   a környezet többi BLE eszköze nem jelenik meg.
-- `src/ble/registry.js` — `RobotRegistry`: több robot, kapcsolatok, telemetria-poll, események.
-- `src/commands.js` — magas szintű parancsszemantika (a REST/CLI/konzol közös rétege).
+- `src/ble/registry.js` — `RobotRegistry`: több robot, kapcsolatok, érzékelőnkénti
+  telemetria-poll, **automatikus újracsatlakozás**, mikrofon-stream, események.
+- `src/commands.js` — magas szintű parancsszemantika (a REST/CLI/konzol közös rétege);
+  a hiányzó nyugta/érzékelő-válasz **hibát** dob (504), nem hamis „OK”-t.
 - `src/app.js`, `src/routes/robots.js`, `src/realtime.js` — Express REST API + socket.io.
+- `src/config.js` — környezeti változók (timeoutek, újracsatlakozás, write gap, mic periódus).
 - `scripts/` — `scan.js`, `control.js`, `console.js` (a backend moduljait használják).
-- `public/` — a webes felület (socket.io-n át).
+- `public/` — a webes felület (socket.io-n át): élő érzékelőadatok, mikrofon-szintmérő.
 
 ## Hardver / BLE topológia
 
 | Elem | Érték |
 |------|-------|
-| Robot BLE cím | `DF:74:94:43:36:ED` (random address), Name: `Codie` |
+| Robot BLE cím (routingos gen.) | `DF:74:94:43:36:ED` (random address), Name: `Codie` |
+| Robot BLE cím (routing nélküli gen.) | `00:07:80:66:F0:DA` — **stabil** (ki/bekapcsolás után is ugyanaz), Name: `Codie` |
 | RPi5 adapter | `hci0` (a beépített BLE adapter) |
 | Vendor service | `52af0001-978a-628d-c845-0a104ca2b8dd` |
 | Write (parancs) char | `52af0002-978a-628d-c845-0a104ca2b8dd` — flags: `write`, `write-without-response` |
 | Notify (válasz/szenzor) char | `52af0003-978a-628d-c845-0a104ca2b8dd` — flags: `notify` |
+| Routing nélküli service | `d46e7e53-ba2f-4044-ade9-f85ead45f458` |
+| Routing nélküli request char | `25ad752e-7a42-4c90-8526-90e85fb3741d` (érzékelő-kérés) |
+| Routing nélküli request reply | `02a92ec6-0e7e-415c-a311-828a802c61d5` (indicate) |
+| Routing nélküli action char | `0b08f48d-a33f-4a93-ad25-84928e2ef792` (beep/LED/motor) |
+| Routing nélküli action reply | `8a7f8f01-8679-400c-b32b-464c71f5d06b` (indicate) |
 
 A `52af0002` write-without-response → nincs ATT-szintű nyugta. A robot válaszai / szenzoradatai
 a `52af0003` notify-csatornán jönnek vissza.
+
+**Két generáció, eltérő protokollal** (a JS backend mindkettőt kezeli, a GATT-elrendezésből
+automatikusan felismerve):
+
+| | routingos | routing nélküli |
+|---|---|---|
+| service | `52af0001-978a-628d-c845-0a104ca2b8dd` | `d46e7e53-ba2f-4044-ade9-f85ead45f458` |
+| frame | `INFO(1) \| SEQ(2) \| CMD(2) \| ARGLEN(2) \| ARG…` | `SEQ(2) \| CMD(2) \| ARG…` |
+| karakterisztikák | 1 write + 1 notify | request + action (+ a két reply) |
+| forrás | a repo `codie/protocol.py` | [zbettenbuk/codiejs](https://github.com/zbettenbuk/codiejs) |
+
+A routing nélküli firmware **eldobja az üzenetet, ha egy kérés még folyamatban van** — ezért
+a JS kliens a parancsok előtt megvárja a futó érzékelő-lekérdezéseket, és a szóló ritmus
+(Morse) alatt a lekérdezések megvárják a ritmus végét.
 
 ## Frame formátum
 
@@ -161,18 +191,24 @@ a konkrét BlueZ felderítéskor rögzült; connect után `menu gatt` → `list-
 
 ## Hang / csipogó
 
-A `SpeakBeep` (0x1064) az egyetlen hang-parancs, csak `duration` (a frekvencia fix). FFT-mérés
-szerint a hangkeltő valószínűleg **önrezgő piezo-buzzer ~2483 Hz-en** — a hangmagasság
-hardveresen fix, firmware-hackkel sem módosítható. A kifejezőeszköz a **ritmus** (hossz +
-szünetek): `play_rhythm`, `play_morse`, `play_tune`.
+A routingos generáción a `SpeakBeep` (0x1064) az egyetlen hang-parancs, csak `duration`
+(a frekvencia fix). FFT-mérés szerint a hangkeltő valószínűleg **önrezgő piezo-buzzer
+~2483 Hz-en** — a hangmagasság hardveresen fix, firmware-hackkel sem módosítható. A
+kifejezőeszköz a **ritmus** (hossz + szünetek): `play_rhythm`, `play_morse`, `play_tune`.
+
+A **routing nélküli** generáción a `CMD_BEEP` (0x0006) **hangerőt (u8) + frekvenciát
+(u16) + időtartamot (u16)** is visz — ott a hangmagasság és a hangerő is állítható.
 
 ## Következő lépések / nyitott
 
-- **Mozgásirány-előjel élő igazolása** (`scripts/verify_directions.py`): hátramenet + `turn`
-  jobbra/balra. Ha fordítva, a `mcp_server.py` `_TURN_SPEED` / `_DRIVE_SPEED` előjele igazít.
-- Robusztus connect (v0.9.0): a `CodieClient.connect` retry-jal + felébresztő BLE-scannel próbál
-  (a Codie elalszik → első connect timeoutolhat). Így egy elalvás nem bukik el tévedésből. A
-  mid-call (hívás közbeni) retry lehet a következő finomítás.
+- A **mozgásirány-előjel élő igazolva** (v0.7.0 utáni élő teszt): előre/hátra/jobbra/balra
+  helyes, nincs előjel-javítás.
+- A **robusztus connect** (v0.9.0) kész: retry + felébresztő BLE-scan, és a JS backend
+  a megszakadt kapcsolatot **újracsatlakozza**. A mid-call (hívás közbeni) retry a
+  Python kliensen még nyitott.
+- A **vonal-érzékelő fizikai jelentése** a routing nélküli generáción még nincs
+  bizonyítva: a 4 bájtos érték egyetlen fix-pontos szám (a codiejs 2^20-as skáláját
+  használjuk, küszöb 30); a nyers érték az API-n elérhető.
 - Hermes MCP-config kész (README „Hermes bekötés"): `~/.hermes/config.yaml`, `PYTHONPATH`-szal
   (nincs `cwd` mező a Hermes sémában). A szerver lustán csatlakozik. Nyitott: beírni az élő
   `~/.hermes/config.yaml`-ba (a user jóváhagyásával) + `/reload-mcp`.

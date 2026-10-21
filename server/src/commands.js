@@ -54,6 +54,41 @@ function numberParam(value, name, { min, max, integer = false } = {}) {
 }
 
 /**
+ * A parancs nyugtázása.
+ *
+ * A BLE réteg `null`-t ad, ha a robot nem válaszol a megadott időn belül.
+ * A felületen ez nem "OK", hanem **hiba**: a felhasználónak látnia kell, hogy
+ * a robot nem hajtotta végre a parancsot (a firmware el is dobhatja az üzenetet).
+ *
+ * @param {unknown} result a kliens visszatérése
+ * @param {string} action a parancs neve (a hibaüzenetben)
+ */
+function requireAck(result, action) {
+  if (result === null || result === undefined) {
+    const error = new Error(
+      `A robot nem nyugtázta a "${action}" parancsot — nem jött válasz a megadott időn belül.`,
+    );
+    error.status = 504; // Gateway Timeout: a robot nem válaszolt
+    throw error;
+  }
+  return result;
+}
+
+/**
+ * Az érzékelő válasza — a `null` itt azt jelenti, hogy a robot nem válaszolt.
+ * @param {unknown} value a kliens visszatérése
+ * @param {string} sensor az érzékelő neve (a hibaüzenetben)
+ */
+function requireReading(value, sensor) {
+  if (value === null || value === undefined) {
+    const error = new Error(`A robot nem válaszolt a(z) ${sensor} érzékelő kérésre.`);
+    error.status = 504;
+    throw error;
+  }
+  return value;
+}
+
+/**
  * Végrehajt egy magas szintű parancsot a kliensen.
  * @param {object} client CodieClient (vagy a tesztekben egy hamis kliens)
  * @param {string} name parancs neve
@@ -64,14 +99,20 @@ export async function runCommand(client, name, params = {}) {
   switch (name) {
     case 'beep': {
       const ms = numberParam(params.ms ?? 500, 'ms', { min: 1, max: 10000, integer: true });
-      await client.beep(ms);
+      requireAck(await client.beep(ms), 'beep');
       return { action: 'beep', ms };
     }
     case 'morse': {
       const text = String(params.text ?? '');
       if (!text) throw new Error('A morse parancshoz kell szöveg.');
-      await client.playMorse(text, params.unitMs ? Number(params.unitMs) : undefined);
-      return { action: 'morse', text };
+      // fire-and-forget: a ritmus nyugtázás nélkül szól (a pontos időzítés miatt)
+      const unitMs = numberParam(params.unitMs ?? 120, 'unitMs', {
+        min: 10,
+        max: 1000,
+        integer: true,
+      });
+      await client.playMorse(text, unitMs);
+      return { action: 'morse', text, unitMs };
     }
     case 'tune': {
       const tune = String(params.name ?? '');
@@ -80,27 +121,27 @@ export async function runCommand(client, name, params = {}) {
     }
     case 'led': {
       const color = String(params.color ?? 'green');
-      await client.ledAll(color);
+      requireAck(await client.ledAll(color), 'led');
       return { action: 'led', color };
     }
     case 'ledSingle': {
       const color = String(params.color ?? 'green');
       const index = numberParam(params.index ?? 1, 'index', { min: 1, max: 12, integer: true });
-      await client.ledSingle(color, index);
+      requireAck(await client.ledSingle(color, index), 'ledSingle');
       return { action: 'ledSingle', color, index };
     }
     case 'ledsOff': {
-      await client.ledsOff();
+      requireAck(await client.ledsOff(), 'ledsOff');
       return { action: 'ledsOff' };
     }
     case 'forward': {
       const cm = numberParam(params.cm ?? 10, 'cm', { min: 0, max: MAX_DISTANCE_CM });
-      await client.driveDistance(Math.trunc(cm * 10), DRIVE_SPEED, DRIVE_SPEED);
+      requireAck(await client.driveDistance(Math.trunc(cm * 10), DRIVE_SPEED, DRIVE_SPEED), 'forward');
       return { action: 'forward', cm };
     }
     case 'backward': {
       const cm = numberParam(params.cm ?? 10, 'cm', { min: 0, max: MAX_DISTANCE_CM });
-      await client.driveDistance(Math.trunc(cm * 10), -DRIVE_SPEED, -DRIVE_SPEED);
+      requireAck(await client.driveDistance(Math.trunc(cm * 10), -DRIVE_SPEED, -DRIVE_SPEED), 'backward');
       return { action: 'backward', cm };
     }
     case 'turn': {
@@ -108,30 +149,39 @@ export async function runCommand(client, name, params = {}) {
       const magnitude = Math.min(Math.abs(degrees), 360);
       // pozitív fok = jobbra -> az API szerint jobbra = NEGATÍV speed
       const speed = degrees >= 0 ? -TURN_SPEED : TURN_SPEED;
-      await client.driveTurn(magnitude, speed);
+      requireAck(await client.driveTurn(magnitude, speed), 'turn');
       return { action: 'turn', degrees };
     }
     case 'stop': {
-      await client.stop();
+      requireAck(await client.stop(), 'stop');
       return { action: 'stop' };
     }
     case 'status': {
-      return { action: 'status', status: await client.status() };
+      const status = await client.status();
+      // egy hibás érzékelő ne rontsa el a teljes lekérést, de ha egyik sem
+      // válaszolt, akkor az nem mérés, hanem hibás kapcsolat
+      const readings = [status.batteryPct, status.sonarMm, status.lightRaw, status.line];
+      if (readings.every((value) => value === null || value === undefined)) {
+        const error = new Error('A robot nem válaszolt egyetlen érzékelő kérésre sem.');
+        error.status = 504;
+        throw error;
+      }
+      return { action: 'status', status };
     }
     case 'battery': {
-      return { action: 'battery', pct: await client.battery() };
+      return { action: 'battery', pct: requireReading(await client.battery(), 'akku') };
     }
     case 'sonar': {
-      return { action: 'sonar', mm: await client.sonar() };
+      return { action: 'sonar', mm: requireReading(await client.sonar(), 'szonár') };
     }
     case 'light': {
-      return { action: 'light', raw: await client.light() };
+      return { action: 'light', raw: requireReading(await client.light(), 'fény') };
     }
     case 'line': {
-      return { action: 'line', line: await client.line() };
+      return { action: 'line', line: requireReading(await client.line(), 'vonal') };
     }
     case 'mic': {
-      return { action: 'mic', raw: await client.mic() };
+      return { action: 'mic', raw: requireReading(await client.mic(), 'mikrofon') };
     }
     default:
       throw new Error(`Ismeretlen parancs: ${name}. Elérhető: ${COMMAND_NAMES.join(', ')}`);

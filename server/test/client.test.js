@@ -11,19 +11,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CodieClient } from '../src/ble/client.js';
-import { FakeCodie, FakeScanner } from './fake-robot.js';
+import { FakeCodie, FakeNoble, FakeScanner } from './fake-robot.js';
 
 async function connectedClient(robot = new FakeCodie()) {
   const scanner = new FakeScanner([robot]);
   const client = new CodieClient({
     address: robot.address,
-    noble: null,
+    noble: new FakeNoble([robot]),
     scanner,
     timeout: 2000,
     scanWindow: 1000,
     connectRetries: 1,
     retryDelay: 10,
     responseTimeout: 300,
+    writeGap: 0, // a teszt ne várjon BLE-szünetet (a szünet külön tesztelt)
   });
   await client.connect();
   return { client, robot };
@@ -88,4 +89,40 @@ test('a lekapcsolódás egyetlen eseményt jelez', async () => {
   });
   await client.disconnect();
   assert.equal(events, 1, 'pontan egy disconnected esemény');
+});
+
+test('a kliens "error" eseménye nem dob (a hibás BLE-csomag nem öli meg a szervert)', async () => {
+  const { client } = await connectedClient();
+  const seen = [];
+  client.on('ble-error', (error) => seen.push(error));
+  // A Node EventEmitter a 'error' eseményt listener nélkül kidobja — a kliens
+  // beépített listenerje miatt ez nem szakítja meg a szervert.
+  client.emit('error', new Error('hibás BLE-csomag'));
+  assert.equal(seen.length, 1, 'a hiba a ble-error eseményen jelenik meg');
+  assert.match(seen[0].message, /hibás BLE-csomag/);
+});
+
+test('két párhuzamos írás közt is betart a kötelező szünet', async () => {
+  const { client } = await connectedClient();
+  // a szünet csak a routing nélküli firmware-nél érvényes (ott dobja el az
+  // átfedő üzeneteket) — a routingos generáció a párhuzamos kéréseket bírja
+  client._variant = 'no-routing';
+  const times = [];
+  const writeChar = client._writeChar;
+  client._writeChar = {
+    uuid: writeChar.uuid,
+    writeAsync: async () => {
+      times.push(Date.now());
+    },
+  };
+  // A lekérdezési és az akciósor két külön lánc — ha a szünet nem lenne
+  // szinkron foglalva, a két üzenet ugyanabban a milliszekundban menne ki,
+  // és a firmware eldobná az egyiket.
+  await Promise.all([
+    client._writeGatt(client._writeChar, Buffer.from([1]), { minGap: 60 }),
+    client._writeGatt(client._writeChar, Buffer.from([2]), { minGap: 60 }),
+  ]);
+  assert.equal(times.length, 2);
+  const gap = times[1] - times[0];
+  assert.ok(gap >= 45, `a két írás közt legalább 60 ms kell, mért: ${gap} ms`);
 });

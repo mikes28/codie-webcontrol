@@ -190,6 +190,15 @@ export class FakeNoble extends EventEmitter {
 
   async waitForPoweredOnAsync() {}
 
+  /** A valós noble-hoz hasonlóan: címmel csatlakozik. */
+  async connectAsync(idOrAddress) {
+    const wanted = String(idOrAddress).replace(/:/g, '').toLowerCase();
+    const peripheral = this.peripherals.find((p) => p.id === wanted);
+    if (!peripheral) throw new Error(`unknown peripheral ${idOrAddress}`);
+    await peripheral.connectAsync();
+    return peripheral;
+  }
+
   async startScanningAsync() {
     this.scanning = true;
     for (const peripheral of this.peripherals) {
@@ -221,5 +230,16 @@ export class FakeScanner {
   async findPeripheral(address) {
     const wanted = address.replace(/:/g, '').toLowerCase();
     return this.peripherals.find((p) => p.id === wanted) || null;
+  }
+
+  /** Felébresztő scan (a valós scannerhez hasonlóan). */
+  async wakeScan(address) {
+    return this.findPeripheral(address);
+  }
+
+  /** A valós scannerhez hasonlóan: a hirdetésre hívja a callbacket. */
+  async connectSession(address, { onPeripheral } = {}) {
+    const peripheral = await this.findPeripheral(address);
+    if (peripheral && onPeripheral) await onPeripheral(peripheral);
   }
 }

@@ -21,6 +21,11 @@
         <p id="scan-hint" class="muted small">
           A keresés csak a Codie robotokat mutatja — a többi BLE eszköz kiszűrve.
         </p>
+        <p class="muted small awake-hint">
+          A kapcsolat befejezéséhez a robotnak <strong>ébren kell lennie</strong> (gombnyomás):
+          alvás közben nem fogad BLE-kapcsolatot. A BLE-címe nem változik, ezért a
+          háttérben futó újracsatlakozás is megtalálja.
+        </p>
         <ul id="robot-list" class="robot-list"></ul>
         <p id="robots-empty" class="muted small">Még nincs robot. Indíts egy keresést.</p>
       </section>
@@ -34,6 +39,7 @@
           <div class="telemetry-item"><span class="label">Fény</span><span class="value" id="t-light">—</span></div>
           <div class="telemetry-item"><span class="label">Vonal</span><span class="value" id="t-line">—</span></div>
         </div>
+        <p id="telemetry-age" class="muted small telemetry-age"></p>
 
         <div class="group">
           <h3>Mozgás <small class="muted">(a robotnak szabadon kell forogni)</small></h3>
@@ -71,6 +77,23 @@
             <input id="morse-text" type="text" placeholder="Morse szöveg (pl. SOS)" />
             <button class="btn" data-cmd="morse">Morse</button>
           </div>
+        </div>
+
+        <div class="group">
+          <h3>Mikrofon</h3>
+          <p class="muted small">
+            A robot mikrofonja nem hangot ad, hanem nyers erősségi értéket (0–2048) —
+            ezt mutatja a szintmérő. A figyelés alatt a BLE rádiót a mikrofon
+            használja, ezért az érzékelőadatok frissítése szünetel.
+          </p>
+          <div class="buttons">
+            <button class="btn" id="mic-btn">Hallgatás indítása</button>
+          </div>
+          <div class="mic-meter">
+            <div class="mic-level" id="mic-level"></div>
+            <div class="mic-peak" id="mic-peak"></div>
+          </div>
+          <p class="muted small mic-hint" id="mic-hint">—</p>
         </div>
 
         <p id="status-line" class="status muted small">—</p>

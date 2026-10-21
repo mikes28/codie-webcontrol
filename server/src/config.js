@@ -82,12 +82,66 @@ export function loadConfig(env = process.env) {
       scanWindowMs: num(env, 'CODIE_SCAN_WINDOW_MS', 8000),
       connectRetries: num(env, 'CODIE_CONNECT_RETRIES', 3),
       retryDelayMs: num(env, 'CODIE_RETRY_DELAY_MS', 3000),
-      /** Telemetria (szenzorok lekérése) periódusa ms-ben, 0 = kikapcsolva. */
-      telemetryMs: num(env, 'CODIE_TELEMETRY_MS', 5000),
+      /**
+       * Telemetria (szenzorok lekérése) periódusa ms-ben, 0 = kikapcsolva.
+       * A felület érzékelőnként frissül (a mérés megérkezésekor), ezért a
+       * periódus a teljes állapotlekérés gyakoriságát adja meg.
+       */
+      telemetryMs: num(env, 'CODIE_TELEMETRY_MS', 250),
+      /** Általános válasz-timeout (ms) egy parancs nyugtázásához. */
+      responseTimeoutMs: num(env, 'CODIE_RESPONSE_TIMEOUT_MS', 2500),
+      /** Érzékelő-kérés timeoutja (ms) — a robot ~100 ms alatt válaszol. */
+      queryTimeoutMs: num(env, 'CODIE_QUERY_TIMEOUT_MS', 1200),
+      /** GATT-write timeoutja (ms) — enélkül elalvó robotnál lefagy a szerver. */
+      writeTimeoutMs: num(env, 'CODIE_WRITE_TIMEOUT_MS', 3000),
+      /** A teljes állapotlekérés (4 érzékelő) legfeljebb ennyi ideig tarthat. */
+      statusTimeoutMs: num(env, 'CODIE_STATUS_TIMEOUT_MS', 10000),
+      /**
+       * Kötelező szünet két BLE-üzenet között (ms).
+       * A routing nélküli firmware a túl gyorsan következő üzenetet eldobja —
+       * élőben mérve 30 ms is hibátlan volt (a válasz ~100 ms alatt jön), a
+       * nyugtázatlan (ritmus) üzeneteknél külön 150 ms érvényes.
+       */
+      writeGapMs: num(env, 'CODIE_WRITE_GAP_MS', 50),
+      /**
+       * A mikrofon figyelésének periódusa (ms).
+       * A robot egy lekérdezésre ~100 ms alatt válaszol, és a rádió nem bírja
+       * a gyors egymás utáni kéréseket — 200 ms alatt a telemetria is kimarad.
+       */
+      micMs: num(env, 'CODIE_MIC_MS', 200),
+      /** Újracsatlakozás egy váratlanul megszakadt kapcsolat után. */
+      autoReconnect: bool(env, 'CODIE_AUTO_RECONNECT', true),
+      /** Hány alkalommal próbálja újra a kapcsolatot megszakadás után. */
+      reconnectAttempts: num(env, 'CODIE_RECONNECT_ATTEMPTS', 3),
+      /** Késleltetés az újracsatlakozási próbálkozások között (ms). */
+      reconnectDelayMs: num(env, 'CODIE_RECONNECT_DELAY_MS', 5000),
     },
 
     /** A szerver indulásakor automatikusan csatlakozandó robotok címei. */
     autoConnect: list(env, 'CODIE_AUTO_CONNECT'),
+  };
+}
+
+/**
+ * A `RobotRegistry` opciói a BLE-konfigurációból — egy hely, hogy a szerver
+ * és a scriptek ugyanazt használják.
+ */
+export function registryOptions(ble) {
+  return {
+    connectTimeout: ble.connectTimeoutMs,
+    scanWindow: ble.scanWindowMs,
+    connectRetries: ble.connectRetries,
+    retryDelay: ble.retryDelayMs,
+    responseTimeout: ble.responseTimeoutMs,
+    queryTimeout: ble.queryTimeoutMs,
+    writeTimeout: ble.writeTimeoutMs,
+    statusTimeout: ble.statusTimeoutMs,
+    writeGap: ble.writeGapMs,
+    telemetryMs: ble.telemetryMs,
+    micMs: ble.micMs,
+    autoReconnect: ble.autoReconnect,
+    reconnectAttempts: ble.reconnectAttempts,
+    reconnectDelayMs: ble.reconnectDelayMs,
   };
 }
 
