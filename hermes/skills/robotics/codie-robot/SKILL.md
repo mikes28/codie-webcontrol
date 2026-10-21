@@ -21,10 +21,14 @@ vagy hangot/LED-et kérni tőle. A `codie` MCP-szerver toolokat `mcp_codie_*` n�
 
 ## Elérhető toolok
 
-- **Érzékelés:** `mcp_codie_status` (akku %, szonár mm, fény, vonal bal/jobb), `mcp_codie_look_ahead` (szonár mm).
+- **Érzékelés:** `mcp_codie_status` (akku %, szonár mm, fény, vonal), `mcp_codie_look_ahead` (szonár mm).
 - **Mozgás (véges, magától megáll):** `mcp_codie_drive_forward(cm)`, `mcp_codie_drive_backward(cm)`,
   `mcp_codie_turn(degrees)` — **pozitív fok = jobbra, negatív = balra**, `mcp_codie_stop`.
 - **Kimenet:** `mcp_codie_beep(ms)`, `mcp_codie_say_morse(text)`, `mcp_codie_set_leds(color)`.
+
+> A toolok a `codie` MCP-szerveren át a **JS backend REST API-ját** hívják — a BLE réteg
+> ott van, és a backend kezeli az újracsatlakozást is. A backendnek futnia kell
+> (`cd server && npm start`), különben a toolok „nem érhető el" hibát adnak.
 
 ## Eljárás (magas szintű akciók — Butter-Bench elv)
 
@@ -45,9 +49,10 @@ vagy hangot/LED-et kérni tőle. A `codie` MCP-szerver toolokat `mcp_codie_*` n�
   valószínűleg az akku, nem a parancs.
 - **A csipogó fix hangmagasságú** (~2483 Hz-es buzzer): nincs dallam. A `say_morse` és a `beep` csak
   ritmus/időzítés — ne ígérj zenét.
-- **BLE-késleltetés:** az első tool-hívás ~10-15 mp (kapcsolatépítés). Ha egy hívás BLE-hibát dob
-  (a robot elaludt / kiment a hatótávból), a következő hívás automatikusan újracsatlakozik —
-  próbáld meg még egyszer, mielőtt hibát jelentesz.
+- **Kapcsolatépítés:** az első hívás lassú lehet (~10-15 mp), ha a backendnek még csatlakoznia
+  kell a robothoz (alvó robotnál a BLE-scan felébreszti). Ha egy hívás BLE-hibát dob (a robot
+  elaludt / kiment a hatótávból), a backend maga újracsatlakozik — próbáld meg még egyszer,
+  mielőtt hibát jelentesz.
 - **Fizikai biztonság:** padlón mozgatás előtt győződj meg, hogy a robot nincs asztalszélen.
   Teszthez a biztonságos póz: a robot az oldalán, töltőn (a kerekek pörögnek, de nem szalad el).
 
@@ -58,5 +63,6 @@ vagy hangot/LED-et kérni tőle. A `codie` MCP-szerver toolokat `mcp_codie_*` n�
 ## Ellenőrzés
 
 - `status` értelmes értékeket ad (akku %, szonár mm), a mozgásparancs után a robot a várt helyzetben
-  van, a `beep` hallható. Ha minden tool BLE-hibát dob, a `codie` MCP-szerver vagy a robot nem elérhető
-  — ellenőrizd, hogy a Codie be van-e kapcsolva és hatótávon belül.
+  van, a `beep` hallható. Ha minden tool BLE-hibát dob, először a **backendet** nézd meg
+  (`curl localhost:3000/api/health`): a MCP-szerver azon keresztül szól a robotnak. Ha a backend
+  él, akkor a robot lehet alvó vagy hatótájon kívül — a backend az újracsatlakozást kezeli.

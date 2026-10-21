@@ -1,96 +1,53 @@
-"""Codie MCP szerver.
+"""Codie MCP szerver (vékony FastMCP burkoló).
 
-A meglévő ``codie.CodieClient`` fölé tesz egy MCP réteget, hogy a Hermes Agent
-(vagy bármely MCP-kliens) magas szintű, biztonságos toolokon át vezérelje a robotot.
-
-Döntések:
-  1. Egy tartós BLE-kapcsolat a szerver életére (nem per-hívás connect).
-  2. Reconnect-wrapper: ha a kapcsolat megszakad (a robot elalszik / kimegy a
-     hatótávból), a következő tool-hívás automatikusan újracsatlakozik.
-  3. Csak véges, önmagukat korlátozó mozgásparancsok toolként -> nincs runaway.
-
-Futtatás (stdio):
-    CODIE_ADDRESS=DF:74:94:43:36:ED .venv/bin/python -m codie.mcp_server
+A valódi logika a `codie.tools`-ben él; ez a modul csak a FastMCP regisztrációt
+végzi. A `mcp` csomagot **csak** ez az egyetlen modul importálja — a `codie.tools`
+és a `codie.api` a standard library-t használják, ezért azok (mint a tesztek is)
+működnek anélk, hogy a `mcp` vagy a `bleak` fel lenne telepítve.
 """
 
 from __future__ import annotations
 
-import os
-from contextlib import asynccontextmanager
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError as exc:  # mcp nélkül a szerver nem indulhat el
+    raise ImportError(
+        "A 'mcp' csomag szükséges a Codie MCP szerverhez, de nincs "
+        "telepítve. Telepítse: pip install mcp"
+    ) from exc
 
-from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv  # noqa: E402
 
-from codie import CodieClient
+from codie.tools import (  # noqa: E402
+    tool_status,
+    tool_look_ahead,
+    tool_drive_forward,
+    tool_drive_backward,
+    tool_turn,
+    tool_stop,
+    tool_beep,
+    tool_say_morse,
+    tool_set_leds,
+)
 
 load_dotenv()
-ADDRESS = os.environ.get("CODIE_ADDRESS", "DF:74:94:43:36:ED")
-ADAPTER = os.environ.get("CODIE_ADAPTER", "hci0")
 
-COLORS = {"white", "green", "red", "blue", "cyan", "yellow", "orange"}
-
-# DriveTurn (hivatalos API): pozitív speed -> BALRA fordul, negatív -> JOBBRA.
-# Konvenció itt: pozitív fok = JOBBRA (óramutató járása). [élőben igazolandó]
-_TURN_SPEED = 40
-_DRIVE_SPEED = 40
-
-_codie: CodieClient | None = None
+# A `CODIE_API_URL` / `CODIE_ADDRESS` a környezetből jön (get_api() kezeli).
+mcp = FastMCP("codie")
 
 
-async def _ensure() -> CodieClient:
-    """A tartós kliens; ha a kapcsolat megszakadt, egyszer újracsatlakozik."""
-    global _codie
-    if _codie is not None and _codie.is_connected:
-        return _codie
-    if _codie is not None:
-        try:
-            await _codie.disconnect()
-        except Exception:  # noqa: BLE001 - takarítás, a hibát elnyeljük
-            pass
-    _codie = CodieClient(ADDRESS, adapter=ADAPTER)
-    await _codie.connect()
-    return _codie
-
-
-@asynccontextmanager
-async def _lifespan(_server: "FastMCP"):
-    """Lusta csatlakozás: a szerver azonnal indul, az első tool-hívás nyit BLE-kapcsolatot
-    (a ``_ensure`` révén). Így a tool-felderítés nem vár a ~10-15 mp-es BLE connectre.
-    Leálláskor bontunk."""
-    global _codie
-    try:
-        yield
-    finally:
-        if _codie is not None:
-            try:
-                await _codie.disconnect()
-            finally:
-                _codie = None
-
-
-mcp = FastMCP("codie", lifespan=_lifespan)
-
-
-# ---- Érzékelés ("a Hermes szeme") -------------------------------------------
+# ---- Érzékelés ("a Hermes szeme") --------------------------------------------
 
 @mcp.tool()
 async def status() -> dict:
     """A robot pillanatnyi állapota: akku (%), szonár (mm), fény- és vonalszenzor."""
-    c = await _ensure()
-    left, right = await c.line()
-    return {
-        "battery_pct": await c.battery(),
-        "sonar_mm": await c.sonar(),
-        "light": await c.light(),
-        "line": {"left": left, "right": right},
-    }
+    return await tool_status()
 
 
 @mcp.tool()
 async def look_ahead() -> int | None:
     """Szonár-távolság előre, mm-ben. Hívd meg mozgás ELŐTT akadály-ellenőrzésre."""
-    c = await _ensure()
-    return await c.sonar()
+    return await tool_look_ahead()
 
 
 # ---- Mozgás (csak véges parancsok, magától megáll) --------------------------
@@ -98,38 +55,25 @@ async def look_ahead() -> int | None:
 @mcp.tool()
 async def drive_forward(cm: float) -> str:
     """Előre halad adott távolságot (cm, 0..200). Véges parancs, magától megáll."""
-    cm = max(0.0, min(cm, 200.0))
-    c = await _ensure()
-    await c.drive_distance(int(cm * 10), _DRIVE_SPEED, _DRIVE_SPEED)
-    return f"előre {cm:g} cm"
+    return await tool_drive_forward(cm)
 
 
 @mcp.tool()
 async def drive_backward(cm: float) -> str:
     """Hátra halad adott távolságot (cm, 0..200). Véges parancs, magától megáll."""
-    cm = max(0.0, min(cm, 200.0))
-    c = await _ensure()
-    await c.drive_distance(int(cm * 10), -_DRIVE_SPEED, -_DRIVE_SPEED)
-    return f"hátra {cm:g} cm"
+    return await tool_drive_backward(cm)
 
 
 @mcp.tool()
 async def turn(degrees: float) -> str:
     """Fordul helyben. Pozitív fok = jobbra, negatív = balra. (max ±360°)"""
-    magnitude = min(abs(int(degrees)), 360)
-    # pozitív fok = jobbra -> az API szerint jobbra = NEGATÍV speed
-    speed = -_TURN_SPEED if degrees >= 0 else _TURN_SPEED
-    c = await _ensure()
-    await c.drive_turn(magnitude, speed)
-    return f"fordult {degrees:g}°"
+    return await tool_turn(degrees)
 
 
 @mcp.tool()
 async def stop() -> str:
     """Azonnal megállítja a kerekeket."""
-    c = await _ensure()
-    await c.drive_speed(0, 0)
-    return "megállt"
+    return await tool_stop()
 
 
 # ---- Kimenet (hang, fény) ---------------------------------------------------
@@ -137,29 +81,19 @@ async def stop() -> str:
 @mcp.tool()
 async def beep(ms: int = 500) -> str:
     """Sípol adott ideig (ms, max 10000)."""
-    ms = max(1, min(ms, 10000))
-    c = await _ensure()
-    await c.beep(ms)
-    return f"beep {ms} ms"
+    return await tool_beep(ms)
 
 
 @mcp.tool()
 async def say_morse(text: str) -> str:
     """A megadott szöveget Morse-kódként csipogja el."""
-    c = await _ensure()
-    await c.play_morse(text)
-    return f"morse: {text}"
+    return await tool_say_morse(text)
 
 
 @mcp.tool()
-async def set_leds(color: str) -> str:
+async def set_leds(color: str, index: int | None = None) -> str:
     """Mind a 12 LED-et egy színre állítja. Színek: white, green, red, blue, cyan, yellow, orange."""
-    color = color.lower()
-    if color not in COLORS:
-        return f"ismeretlen szín: {color}. választható: {', '.join(sorted(COLORS))}"
-    c = await _ensure()
-    await c.led_all(color)
-    return f"LED-ek: {color}"
+    return await tool_set_leds(color, index)
 
 
 if __name__ == "__main__":

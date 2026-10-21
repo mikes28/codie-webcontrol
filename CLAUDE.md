@@ -21,30 +21,31 @@ fogadott és végrehajtott parancsot (SpeakBeep) — ismételhetően igazolva. K
 **hivatalos Codie BLE API v1.0** dokumentáció + `comApi.h` (lásd `docs/comApi.h`), amely a
 visszafejtett protokollt teljesen igazolta (egy hibát is feltárt: a HSV 0-255, nem 0-100).
 
-**Jelenlegi állapot (v0.4.0):** működő Python package (`CodieClient`), minden funkció élőben
-igazolva (szenzorok, hang, mozgás, LED), hang/ritmus/Morse réteg, FFT-alapú frekvenciamérés
-(a csipogó ~2483 Hz-es önrezgő buzzer), egy MCP szerver a Hermes-integrációhoz, és egy
-**Express.js web-backend** (`server/`), amely **mindkét Codie-generációt** beszél
-(a routingost a Python-egyben, a routing nélkülit a JS-ben), élő érzékelőadatokkal,
-mikrofon-figyeléssel, beépített LED-animációval és automatikus újracsatlakozással. A verziózás
-semver + git tag + GitHub release; a projekt repója: `github.com/mikes28/codie-webcontrol`
-(publikus) — a történet forrása a `sanchomuzax/codie`, amit `upstream` remoteként
-(fetch-only) használunk.
+**Jelenlegi állapot (v0.5.0):** a Python package (`codie/`) már **nem** szól BLE-t
+közvetlenül — a valódi hardver (routing nélküli generáció, `00:07:80:66:F0:DA`) a
+**Node.js web-backend** (`server/`) kezeli. A Python oldal a backend **REST API-jára**
+épül: `codie/api.py` (szinkron, standard-library kliens) + `codie/tools.py` (9 async
+agent-tool) + vékony `codie/mcp_server.py` (FastMCP burkolat). A `codie/protocol.py`,
+`codie/morse.py`, `codie/tunes.py` maradtak **paritás-referenciaként** — a JS port
+(`server/src/ble/protocol.js`) bájtra bájt ezt követi, és a `server/test/parity.test.js`
+ellenőrzi. Az FFT-s frekvenciamérés offline (`scripts/fft_pitch.py`, a csipogó
+~2483 Hz-es önrezgő buzzer). A verziózás semver + git tag + GitHub release; a projekt repója:
+`github.com/mikes28/codie-webcontrol` (publikus) — a történek forrása a
+`sanchomuzax/codie`, amit `upstream` remoteként (fetch-only) használunk.
 
 ## Projekt struktúra
 
 **Python package (`codie/`):**
-- `protocol.py` — wire-protokoll: frame encode/decode, parancs-ID-k, szín-HSV (0-255). Függőségmentes, unit-tesztelt.
-- `client.py` — `CodieClient`: aszinkron bleak kliens, notify-feliratkozás, SEQ↔REQSEQ kérés/válasz párosítás; aktuátor- és szenzormetódusok + hang (`play_rhythm`/`play_morse`/`play_tune`).
+- `protocol.py` — wire-protokoll: frame encode/decode, parancs-ID-k, szín-HSV (0-255). Függőségmentes, unit-tesztelt; **paritás-referencia** a JS port (`server/src/ble/protocol.js`) számára.
+- `api.py` — `CodieApi`: szinkron REST kliens a Node.js backendhez (standard library, urllib). A BLE réteg a backendben van; ez a kapu. `CodieApiError` a 4xx/5xx/összeköttetési hibákat kezeli státusszámmal.
+- `tools.py` — a kilenc async agent-tool (`mcp_codie_*` néven): érzékelés, véges mozgás, hang/LED. **Nincs `mcp` import**; a `CodieApi`-n keresztül szól a backendnek, így unit-tesztelhető.
+- `mcp_server.py` — vékony FastMCP burkolat: csak a `tools.py`-t regisztrálja (stdio). A lényeg (lusta csatlakozás, reconnect, véges mozgás) a `tools.py`-ben.
 - `morse.py` — szöveg → Morse-ritmus (szabványos időzítés).
 - `tunes.py` — beépített ritmusminták (fix hangmagasság → ritmus, nem dallam).
-- `mcp_server.py` — FastMCP réteg a Hermes/agent integrációhoz (9 tool, reconnect-wrapper, csak véges mozgásparancsok).
 
-**Szkriptek (`scripts/`):** `test_all.py` (teljes teszt), `led.py` / `led_sweep.py` (LED),
-`battery.py` (akku trend), `mic_beep.py` (mic hallja a beepet), `play.py` (ritmus/Morse/beep CLI),
-`fft_pitch.py` (FFT frekvencia), `verify_directions.py` (mozgásirány-igazolás).
+**Szkriptek (`scripts/`):** `fft_pitch.py` (a csipogó domináns frekvenciája — offline FFT, nem BLE).
 
-**Tesztek (`tests/`):** protokoll + Morse + MCP smoke — 30 unit teszt, robot nélkül futtatható.
+**Tesztek (`tests/`):** `test_protocol.py` (wire-protokoll) + `test_morse.py` (Morse) — unit teszt, robot nélkül futtatható.
 **Hermes skill (`hermes/skills/robotics/codie-robot/SKILL.md`):** playbook az agentnek — mikor/hogyan
 használja a `mcp_codie_*` toolokat (érzékelés, véges mozgás, buktatók, biztonság).
 **Docs:** `docs/comApi.h` (hivatalos header), `CHANGELOG.md`, `VERSION`.
@@ -196,23 +197,27 @@ a konkrét BlueZ felderítéskor rögzült; connect után `menu gatt` → `list-
 A routingos generáción a `SpeakBeep` (0x1064) az egyetlen hang-parancs, csak `duration`
 (a frekvencia fix). FFT-mérés szerint a hangkeltő valószínűleg **önrezgő piezo-buzzer
 ~2483 Hz-en** — a hangmagasság hardveresen fix, firmware-hackkel sem módosítható. A
-kifejezőeszköz a **ritmus** (hossz + szünetek): `play_rhythm`, `play_morse`, `play_tune`.
+kifejezőeszköz a **ritmus** (hossz + szünetek): a Python `morse.py` és `tunes.py` tartalmazza
+a kódolást (a JS port `server/test/parity.test.js` ellenőrzi), a `beep`/`morse`/`tune` parancsok
+a JS backend REST API-n keresztül kerülnek kiküldve.
 
 A **routing nélküli** generáción a `CMD_BEEP` (0x0006) **hangerőt (u8) + frekvenciát
 (u16) + időtartamot (u16)** is visz — ott a hangmagasság és a hangerő is állítható.
 
 ## Következő lépések / nyitott
 
-- A **mozgásirány-előjel élő igazolva** (v0.7.0 utáni élő teszt): előre/hátra/jobbra/balra
-  helyes, nincs előjel-javítás.
-- A **robusztus connect** (v0.9.0) kész: retry + felébresztő BLE-scan, és a JS backend
-  a megszakadt kapcsolatot **újracsatlakozza**. A mid-call (hívás közbeni) retry a
-  Python kliensen még nyitott.
+- A **mozgásirány-előjel élű igazolva** (a JS backenden keresztül): előre/hátra/jobbra/balra
+  helyes, nincs előjel-javítás. A `turn` konvenciója (pozitív fok = jobbra) a `CodieApi.turn()`-ben
+  és a `tools.py` `turn()`-ban is ez.
+- A **robusztus connect** kész: retry + felébresztő BLE-scan, és a JS backend
+  a megszakadt kapcsolatot **újracsatlakozza**. A mid-call retry is a JS backend kezeli
+  (a Python oldalon már csak egy szinkron REST hívás maradt — nincs értelme újraverik).
 - A **vonal-érzékelő fizikai jelentése** a routing nélküli generáción még nincs
   bizonyítva: a 4 bájtos érték egyetlen fix-pontos szám (a codiejs 2^20-as skáláját
   használjuk, küszöb 30); a nyers érték az API-n elérhető.
-- Hermes MCP-config kész (README „Hermes bekötés"): `~/.hermes/config.yaml`, `PYTHONPATH`-szal
-  (nincs `cwd` mező a Hermes sémában). A szerver lustán csatlakozik. Nyitott: beírni az élő
-  `~/.hermes/config.yaml`-ba (a user jóváhagyásával) + `/reload-mcp`.
+- **Hermes MCP-config:** a `~/.hermes/config.yaml` `mcp_servers` részében a `codie` MCP-szerver a
+  `CODIE_API_URL`-t és a `CODIE_ADDRESS`-t használja (a BLE réteg a backendben van, a szerver lustán
+  csatlakozik). `PYTHONPATH` még szükséges (nincs `cwd` a Hermes sémában). Nyitott: beírni az élő
+  `~/.hermes/config.yaml`-ba (user jóváhagyásával) + `/reload-mcp`.
 - Opcionális: `LedStartAnim` (0x1066) beépített animációk; magasabb szintű skillek (vonalkövetés
   a `line()`-nal, szonár-akadálykerülés), vagy a Scratch-blokkos réteg újraélesztése.

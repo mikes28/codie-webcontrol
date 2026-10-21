@@ -6,32 +6,30 @@
 
 A [csorbazoli/CodieController](https://github.com/csorbazoli/CodieController) 2016-os,
 félbehagyott Java PoC-jából visszafejtett wire-protokoll tiszta Python implementációja.
-A **Codie** oktatórobotot közvetlen Bluetooth Low Energy-n (BlueZ) vezérli — az a láncszem,
-ami 2019-ben hiányzott (PC-oldali BLE út), Linuxon triviális.
+A **Codie** oktatórobotot Bluetooth Low Energy-n (BlueZ) vezérli a **Node.js web-backend**
+(`server/`) révén — az a láncszem, ami 2019-ben hiányzott (PC-oldali BLE út), Linuxon triviális.
+A Python csomag (`codie/`) két dolgot ad: a **protokoll-referenciát** (`protocol`, `morse`,
+`tunes`) és egy **szinkron REST klienst** (`api`), ami a backend HTTP felületén keresztül
+szól a robotnak. A BLE réteg a backendben van.
 
 A protokoll- és hardverrészletek a [CLAUDE.md](CLAUDE.md)-ben; a fejlődési napló a
 [MEMORY.md](MEMORY.md)-ben; a verziónkénti változások a [CHANGELOG.md](CHANGELOG.md)-ben.
-Aktuális verzió: **v0.4.0** (webes vezérlő Express.js backendrel, a második Codie-generáció
-támogatásával, élő érzékelőadatokkal, mikrofon-figyeléssel és beépített LED-animációval).
+Aktuális verzió: **v0.5.0** (a Python BLE réteg (bleak `CodieClient`) törölve; a Python oldal
+minta a JS backend REST API-jára épül).
 
 ## Projekt struktúra
 
 ```
 codie/            Python package
   protocol.py     wire-protokoll (frame encode/decode, parancs-ID-k, szín-HSV 0-255)
-  client.py       CodieClient — aszinkron bleak kliens (aktuátor/szenzor/hang)
-  morse.py        szöveg → Morse-ritmus
-  tunes.py        beépített ritmusminták
-  mcp_server.py   FastMCP réteg a Hermes/agent integrációhoz (9 tool)
+  api.py          CodieApi — szinkron REST kliens a JS backendhez (standard library)
+  tools.py        9 async agent-tool (mcp_codie_*, nincs mcp import, CodieApi-n keresztül)
+  mcp_server.py   vékony FastMCP burkolat (tools.py regisztrálása, stdio)
+  morse.py        szöveg → Morse-ritmus (paritás-referencia a JS port számára)
+  tunes.py        beépített ritmusminták (paritás-referencia)
 scripts/
-  test_all.py         teljes funkció-teszt (sensors|beep|led|drive)
-  led.py, led_sweep.py  LED-tesztek
-  battery.py          akku SoC + feszültség trend
-  mic_beep.py         a robot hallja a saját beepjét (burkoló)
-  play.py             ritmus / Morse / beep CLI
-  fft_pitch.py        hangfelvétel domináns frekvenciája (FFT)
-  verify_directions.py  mozgásirányok élő igazolása
-tests/            protokoll + Morse + MCP smoke (30 unit teszt)
+  fft_pitch.py    a csipogó domináns frekvenciája (offline FFT, nem BLE)
+tests/            protokoll + Morse (test_protocol.py, test_morse.py) — 30-ish unit teszt
 server/           Express + socket.io web-backend (JS), több robot, robot-szűrő
   src/ble/        protocol.js, protocol-norrouting.js, client.js, scanner.js,
                   registry.js, noble.js (noble/BlueZ)
@@ -41,10 +39,11 @@ server/           Express + socket.io web-backend (JS), több robot, robot-szűr
 docs/comApi.h     hivatalos Codie BLE API header (referencia)
 ```
 
-> **Két Codie-generáció van.** A Python package (`codie/`) a **routingos** generációt
-> beszél (`52af0001-…` UUID-k, `INFO|SEQ|CMD|ARGLEN` frame). A második, **routing nélküli**
-> generációt (`d46e7e53-…`, négy karakterisztika) a **JS web-backend** kezeli — a
-> kliens a GATT-elrendezésből automatikusan felismeri, melyikkel van szó.
+> **Két Codie-generáció van**, mindet a **JS web-backend** (`server/`) kezeli (a GATTelrendezésből
+> automatikusan felismeri, melyikkel van szó). A Python csomag **nem** beszél BLE-t közvetlenül:
+> a `codie/protocol.py`/`morse.py`/`tunes.py` a JS port **bájtra bájt** egyezéséért felelnek
+> (a `server/test/parity.test.js` ellenőrzi), a `codie/api.py` pedig a backend REST APIn keresztül
+> vezérelti a robotot. A két generáció közötti különbség a frame-formátum és a parancs-ID-k:
 
 ## Teszt eredmények
 
@@ -67,55 +66,53 @@ docs/comApi.h     hivatalos Codie BLE API header (referencia)
 | Mozgás | DriveSpeed, DriveDistance, DriveTurn | ✅ kerekek pörögtek (alacsony akkun is) |
 | Fény | LedSetColor (mind a 12 + egyesével) | ✅ vizuálisan igazolt, helyes színek, erős fény |
 
-Minden parancsot a robot `nSuccessful=0`-val nyugtázott. A protokollt a hivatalos
-Codie BLE API v1.0 (`docs/comApi.h`) teljesen igazolta.
+- Minden parancsot a robot `nSuccessful=0`-val nyugtázott. A protokollt a hivatalos
+  Codie BLE API v1.0 (`docs/comApi.h`) teljesen igazolta.
+
+> **Archivált:** ez a teszt a már törölt Python `bleak` klienssel készült (a `codie/client.py`
+  jelenleg már nincs; a Python oldal most csak a protokoll-referenciát és a REST klienst tartalmazza).
 
 ## Telepítés
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env      # majd töltsd ki a robot BLE címét
+.venv/bin/pip install -r requirements.txt     # a CodieApi + Morse/FFT (csak stdlib + numpy)
+cd server && npm install                       # a BLE backend (BlueZ + noble)
 ```
 
-A robot címét megtalálod:
+A backendnek kell futnia (a Python/MCP a backend REST API-n keresztül szól a robotnak):
 
 ```bash
-bluetoothctl scan le      # keresd a "Codie" nevű eszközt
+cd server && npm start                          # http://localhost:3000 — webes felület + REST + socket.io
 ```
 
-> **A Python kliens a routingos generációhoz tartozik** (`codie/protocol.py`).
-> A routing nélküli generációhoz a `server/` web-backendot használd — az mindkettőt
-> beszél. A `CODIE_ADDRESS` a routingos robot címét tartalmazza.
+A robot BLE-címet a `server/scripts/scan.js`-vel vagy a webes felület "Robotok keresése"
+gombbal találsz (a routing nélküli generáció címe stabil: `00:07:80:66:F0:DA`); a backend
+`CODIE_AUTO_CONNECT` környezeti változóval automatikusan csatlakoztatja.
 
-## Használat (Python kliens — routingos generáció)
+## Használat (REST API)
+
+A Python csomag a `codie.api.CodieApi` osztályon keresztül szól a backendnek — nincs
+BLE-kapcsolat a Python oldalon, a backend törődik róla:
 
 ```python
-import asyncio
-from codie import CodieClient
+from codie import CodieApi
 
-async def main():
-    async with CodieClient("DF:74:94:43:36:ED") as c:
-        await c.beep(700)                 # sípol
-        await c.led_all("red")            # mind a 12 LED piros
-        print("akku:", await c.battery(), "%")
-        await c.drive_speed(30, 30)       # előre 30%
-        await asyncio.sleep(1)
-        await c.stop()
-
-asyncio.run(main())
+api = CodieApi(
+    base_url="http://127.0.0.1:3000",   # a server/ címe
+    address="00:07:80:66:F0:DA",        # a robot BLE címe
+)
+api.beep(500)           # sípol 500 ms
+api.led("red")          # mind a 12 LED piros
+print("akku:", api.battery(), "%")
+api.forward(10)         # előre 10 cm
+api.stop()              # azonnali megállás
 ```
 
-## Teljes funkció-teszt
-
-A robot **az oldalán, töltőn** feküdjön — a kerekek szabadon pörögnek, de a robot nem
-szalad le az asztalról.
-
-```bash
-.venv/bin/python scripts/test_all.py            # minden
-.venv/bin/python scripts/test_all.py sensors    # csak szenzorok
-.venv/bin/python scripts/test_all.py led drive  # csak LED + mozgás
-```
+> A `base_url` és `address` a `CODIE_API_URL` / `CODIE_ADDRESS` környezeti változókból is
+> jön (alap: `http://127.0.0.1:3000`, illetve a backend által csatlakoztatott robot). A
+> `status()`, `battery()`, `sonar()`, `light()`, `line()`, `mic()` és a mozgás/hang/LED
+> metódusok a backend `POST /api/robots/:address/command` végpontra kerülnek küldve.
 
 ## Webes vezérlő (Express.js backend) — `server/`
 
@@ -155,19 +152,19 @@ Részletek (API, socket-események, szűrők, konfig): [`server/README.md`](serv
 
 ## Hang: ritmus és Morse
 
-A hangszóró fix hangmagasságú csipogó (nincs WAV/dallam), de a ritmus vezérelhető:
+A hangszóró fix hangmagasságú csipogó (nincs WAV/dallam), de a ritmus vezérelhető.
+A ritmus/Morse kódolása a Python `morse.py`/`tunes.py`-ben van (paritás-referencia a JS
+port számára), a tényleges lejátszás a JS backend `beep`/`morse`/`tune` REST-parancsain keresztül:
 
-```bash
-.venv/bin/python scripts/play.py tune shave_haircut   # beépített ritmus
-.venv/bin/python scripts/play.py morse "SOS"          # Morse-kód
-.venv/bin/python scripts/play.py list                 # elérhető ritmusok
+```python
+api.beep(1000)              # egyszerű beep
+api.morse("SOS")            # Morse-kód
+api.tune("shave_haircut")   # beépített ritmus
 ```
 
 A csipogó **hangmagassága** telefonos felvételből mérhető (a robot mikrofonja erre kevés):
 
 ```bash
-.venv/bin/python scripts/play.py beep 3000            # hosszú beep a felvételhez
-# ...vedd fel telefonnal, majd:
 .venv/bin/python scripts/fft_pitch.py felvetel.m4a    # domináns frekvencia + felharmonikusok
 ```
 
@@ -175,21 +172,22 @@ Rendszerfüggőség az FFT-elemzéshez: `ffmpeg` (a felvétel dekódolásához).
 
 ## MCP szerver (Hermes / agent integráció)
 
-A `codie/mcp_server.py` a klienst MCP-toolként publikálja, hogy a Hermes Agent (vagy bármely
-MCP-kliens) magas szintű, biztonságos parancsokkal vezérelje a robotot. Tartós BLE-kapcsolat
-reconnect-tel; csak véges, magától megálló mozgásparancsok (nincs runaway).
+A `codie/mcp_server.py` a `codie/tools.py`-t regisztrálja MCP-toolként, hogy a Hermes Agent
+(vagy bármely MCP-kliens) magas szintű, biztonságos parancsokkal vezérelje a robotot. A toolok
+a `codie.api.CodieApi` révén szólnak a JS backendnek — a BLE réteg a backendben van. Csak véges,
+magától megálló mozgásparancsok (nincs runaway).
 
 Futtatás (stdio):
 
 ```bash
-CODIE_ADDRESS=DF:74:94:43:36:ED .venv/bin/python -m codie.mcp_server
+CODIE_API_URL=http://127.0.0.1:3000 CODIE_ADDRESS=00:07:80:66:F0:DA \
+  .venv/bin/python -m codie.mcp_server
 ```
 
 ### Hermes bekötés
 
 A Hermes a `~/.hermes/config.yaml` `mcp_servers` kulcsa alatt tartja az MCP-szervereket. Mivel a
-Hermes sémájában **nincs `cwd` mező**, a package elérését `PYTHONPATH`-szal adjuk meg (és a stdio
-szerver csak az explicit `env`-et kapja, ezért a címet is oda tesszük):
+Hermes sémájában **nincs `cwd` mező**, a package elérését `PYTHONPATH`-szal adjuk meg:
 
 ```yaml
 mcp_servers:
@@ -198,19 +196,17 @@ mcp_servers:
     args: ["-m", "codie.mcp_server"]
     env:
       PYTHONPATH: "/path/to/codie"
-      CODIE_ADDRESS: "DF:74:94:43:36:ED"
-      CODIE_ADAPTER: "hci0"
-    connect_timeout: 30                   # az első tool-hívás BLE-connectje ~10-15 mp
+      CODIE_API_URL: "http://127.0.0.1:3000"
+      CODIE_ADDRESS: "00:07:80:66:F0:DA"
     timeout: 30                           # hosszabb say_morse / mozgás miatt
-    supports_parallel_tool_calls: false   # egy BLE-link, egy robot -> soros végrehajtás
+    supports_parallel_tool_calls: false   # egy robot -> soros végrehajtás
 ```
+
+A Hermes a toolokat `mcp_codie_<tool>` néven látja (pl. `mcp_codie_drive_forward`). Config után a
+`/reload-mcp` frissíti a kapcsolatot.
 
 > A `/path/to/codie`-t cseréld a klón tényleges abszolút útjára (ez a helyi
 > `~/.hermes/config.yaml`-ba kerül, ami nincs verziózva).
-
-A Hermes a toolokat `mcp_codie_<tool>` néven látja (pl. `mcp_codie_drive_forward`). Config után a
-`/reload-mcp` frissíti a kapcsolatot. A szerver **lustán csatlakozik**: azonnal indul, az első
-tool-hívás nyit BLE-kapcsolatot.
 
 Toolok: `status`, `look_ahead`, `drive_forward(cm)`, `drive_backward(cm)`, `turn(deg)`,
 `stop`, `beep(ms)`, `say_morse(text)`, `set_leds(color)`.
@@ -243,13 +239,21 @@ slash-sel is.
 
 ## Parancsok
 
-| Metódus | Parancs | Megjegyzés |
-|---------|---------|-----------|
-| `beep(ms)` | SpeakBeep | max 10000 ms |
-| `play_rhythm(pattern)` / `play_morse(text)` / `play_tune(name)` | SpeakBeep sorozat | fix hangmagasság → **ritmus**, nem dallam |
-| `led_all(color)` / `led_single(color, idx)` | LedSetColor | színek: white, green, red, blue, cyan, yellow, orange |
-| `drive_speed(l, r)` | DriveSpeed | -100..100 % |
-| `drive_distance(mm, l, r)` | DriveDistance | mm + kerék-sebességek |
-| `drive_turn(deg, speed)` | DriveTurn | fok + sebesség |
-| `battery()` | BatteryGetSoc | % |
-| `light()` / `line()` / `sonar()` / `mic()` | szenzorok | raw / mm |
+| Metódus (`CodieApi`) | REST parancs | BLE parancs | Megjegyzés |
+|---------|---------------|-------------|-----------|
+| `beep(ms)` | `beep` | SpeakBeep (0x1064) | max 10000 ms |
+| `morse(text)` | `morse` | SpeakBeep sorozat | fix hangmagasság (2483 Hz) → **ritmus**, nem dallam |
+| `tune(name)` | `tune` | SpeakBeep sorozat | beépített ritmusok (`tunes.py`-ból) |
+| `led(color)` | `led` | LedSetColor (0x1065) | színek: white, green, red, blue, cyan, yellow, orange |
+| `led_anim(animation, color="red")` | `ledAnim` | SET_ANIMATION (0x0009) | animáció 0 vagy 1; csak routing nélküli gen |
+| `forward(cm)` | `forward` | DriveDistance (0x1061) | 0..200 cm |
+| `backward(cm)` | `backward` | DriveDistance (0x1061, −speed) | 0..200 cm |
+| `turn(degrees)` | `turn` | DriveTurn (0x1062) | pozitív fok = **jobbra** |
+| `stop()` | `stop` | DriveSpeed (0x1060, 0,0) | azonnali megállás |
+| `battery()` | `battery` | BatteryGetSoc (0x1069) | % |
+| `sonar()` | `sonar` | SonarGetRange (0x1063) | mm |
+| `light()` | `light` | LightSenseGetRaw (0x106a) | raw (12 bit) |
+| `line()` | `line` | LineGetRaw (0x106b) | `{value, level, onLine}` |
+| `mic()` | `mic` | MicGetRaw (0x106c) | raw (0..~2048) |
+| `status()` | `status` | összes fenti | akku %, szonár mm, fény, vonal |
+

@@ -56,8 +56,8 @@ A szűrő két "identity" jelet használ, plusz egy opcionális MAC-allowlistet:
 
 A Codie **egyetlen hirdetés után visszaalvik**, és alvás közben nem fogad BLE-kapcsolatot:
 a BlueZ `Connect()`-je "Attempting to connect"-ig jut, majd nem fejeződik be. Ez
-hardver-korlát, nem a backend hibája — a Python (bleak) referencia pontosan ugyanígy
-elhasal (`BleakDeviceNotFoundError`).
+hardver-korlát, nem a backend hibája — a BlueZ maga is így viselkedik (`org.bluez.Error.InProgress`),
+a kapcsolat akkor áll fel, amikor a robot felébred.
 
 Ezért:
 

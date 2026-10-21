@@ -2,6 +2,50 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.5.0] — 2026-10-21
+
+### Added
+- **`codie/api.py`** — vékony, szinkron REST kliens a Node.js backendhez. Kizárólag a
+  Python standard library-t használja (`urllib` + `json`) — nincs új függőség, nincs `bleak`.
+  A `CODIE_API_URL` / `CODIE_ADDRESS` környezeti változókból konfigurálódik. A `CodieApi`
+  a teljes backend API-t (health, robots, connect/disconnect, command, és az érzékelő/
+  aktuátor metódusok) kéli; a `CodieApiError` a 4xx/5xx/összeköttetési hibákat státusszámmal
+  kezeli (0 = hálózati hiba). A BLE réteg a backendben van; ez a kapu.
+- **`codie/tools.py`** — a kilenc async agent-tool megvalósítása (`mcp_codie_*` néven):
+  `status`, `look_ahead`, `drive_forward`, `drive_backward`, `turn`, `stop`, `beep`,
+  `say_morse`, `set_leds`. **Nincs `mcp` import** — a `CodieApi`-n keresztül szól a
+  backendnek, így unit-tesztelhető anélkül, hogy a csomagot telepíteni kellene. A
+  `turn` konvenciója változatlan: pozitív fok = jobbra.
+- **`codie/mcp_server.py`** — vékony FastMCP burkolat: csak a `tools.py`-t regisztrálja
+  (stdio). A lényeg (lusta csatlakozás, reconnect, véges mozgás) a `tools.py`-ben marad.
+
+### Changed
+- **A Python BLE réteg (bleak `CodieClient`) törlése.** A projektben nincs routing
+  generációs robot — a valódi hardver a routing nélküli generáció
+  (`00:07:80:66:F0:DA`), amit a `server/` web-backend beszél. A `codie/client.py` és a
+  hozzá épülő scriptek halott kód volt (a `bleak` csomag sosem volt telepítve, a
+  `~/.hermes/config.yaml` soha nem is létezett). A Python oldal most a backend
+  **REST API-jára** épül.
+- **Törlött szkriptek:** `scripts/led.py`, `scripts/led_sweep.py`, `scripts/mic_beep.py`,
+  `scripts/test_all.py`, `scripts/battery.py`, `scripts/verify_directions.py`,
+  `scripts/play.py` — mind a BLE-kapcsolatot kezelő rétegű, ami most a backenden keresztül
+  történik. Maradt `scripts/fft_pitch.py` (offline FFT, független a BLE-től).
+- **Törölt tesztek:** `tests/test_client_retry.py`, `tests/test_mcp_server.py` — a bleak/
+  MCP szerver komponensekre épültek. A megmaradt `tests/test_protocol.py` +
+  `tests/test_morse.py` csak a protokollreferenciát teszteli (robot nélkül).
+- **`requirements.txt`:** a `bleak` eltávolítva (nincs helye igény). A `mcp` csak a
+  szerver indításához kell (a tesztek nem igényelik); a `numpy` az FFT-hez.
+- **`codie/__init__.py` frissítve:** a csomag most egyértelműen állítja meg, hogy a BLE
+  réteg a backendben van, a Python csak a protokoll-referencia (`protocol`, `morse`,
+  `tunes`) + a REST kliens (`api`).
+
+### Fixed
+- A halott Python BLE-kód eltávolítása után a csomagnak nincs érteménytelen `bleak`-
+  függősége — a `CodieClient` importja és a `python -m codie.mcp_server` a bleak-klienssel
+  egészen addig, amíg valaki felfedte, hogy a csomag sosem volt telepítve. Most már a
+  `requirements.txt`-ben nincs `bleak`, és az `import` lánc a `api.py`→`tools.py`→`mcp_server.py`
+  a backendre épül.
+
 ## [0.4.0] — 2026-10-21
 
 ### Added

@@ -4,6 +4,44 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 [CLAUDE.md](CLAUDE.md)-ben van; ide a döntések, mérföldkövek és incidensek kerülnek.
 
 ---
+## 2026-10-21 — A Python BLE réteg törlése (v0.5.0)
+
+- **A kérdés, ami felmerült:** miért is volt két külön BLE-kliens? A Python `CodieClient`
+  (bleak) a routingos generációt szólna, a JS backend (`server/`) a routing nélkülit — de a
+  projektben a routingos generáció **nem létezik**. A valódi robot (`00:07:80:66:F0:DA`)
+  routing nélküli, és a JS backend már mindig is beszéli. A Python kliens tehát egy **halott
+  ágazat**: a `bleak` csomag sosem volt telepítve, a `~/.hermes/config.yaml` soha nem is
+  jött létre, és a `from codie import CodieClient` import már a csomag importjából is
+  hibát dobott. A "két kliens" gondolat a 2026-07-07-i "két generáció" felismerésből
+  származott, amikor még hittük, hogy a Python a routingos generációt kezeli — de a
+  routingos generációra egyáltalán nincs hardver a projektben.
+- **Mi történt?** A `codie/client.py` és a hozzá épülő scriptek (`led.py`, `led_sweep.py`,
+  `mic_beep.py`, `test_all.py`, `battery.py`, `verify_directions.py`, `play.py`) valamint a
+  `tests/test_client_retry.py` és `tests/test_mcp_server.py` törölve. A `requirements.txt`-ből
+  a `bleak` kiesett. Cserébe három új modul jött létre:
+  - `codie/api.py` — szinkron REST kliens (standard library, urllib); a `CODIE_API_URL` és
+    `CODIE_ADDRESS` env-változókból; a hiba `CodieApiError(status, message)` formában jön.
+  - `codie/tools.py` — a kilenc async agent-tool (`mcp_codie_*`), **nincs `mcp` import** — a
+    `CodieApi`-n keresztül szól a backendnek, így a tesztek nem igényelik a csomagot.
+  - `codie/mcp_server.py` — vékony FastMCP burkolat: csak a `tools.py`-t regisztrálja.
+  A lényeg (lusta csatlakozás, véges mozgás, reconnect) a tools szintjén marad.
+- **Mi maradt?** A protokoll-tisztaság: `codie/protocol.py` (frame, parancs-ID-k, HSV 0-255),
+  `codie/morse.py`, `codie/tunes.py` — ez a JS port (`server/src/ble/protocol.js`) **bájtra bájt**
+  ezt követi, és a `server/test/parity.test.js` + `test/parity_probe.py` ellenőrzi. Az offline
+  `scripts/fft_pitch.py` (a csipogó ~2483 Hz-es önrezgő buzzer mérése) és a maradék unit tesztek
+  (`test_protocol.py`, `test_morse.py`) is élnek — mind robot nélkül.
+- **A tanulság:** a többszörös implementáció (Python BLE + JS BLE) csak akkor járt el, ha a
+  Python oldal valós hardvert is kezel. Mivel a valódi robot a JS-en keresztül menne, a Python
+  csak egy **referencia + kapcsolat** lehetett — a REST API révén a BLE egyszer és egy helyen
+  (a backendben) van. A `bleak` import a `__init__.py`-ból történő leválasztása után a csomag
+  most már igazi standard-library kliens, ami bármikor futtatható, és a `pip install` sem hibásodik
+  meg több ezer sor halott függőségtől.
+- **Nyitott, amit a takarítás után egy élő próba mutatott (2026-10-21):** a `stop` parancs
+  **504-et** adott („nem nyugtázta a stop parancsot") — a routing nélküli firmware feltehetően
+  nem nyugtázza a `MOTOR_BOTH(0,0)` parancsot (a robot megáll, de nem jön válasz), és a
+  parancsréteg `requireAck` ezt hibává fordítja. Mivel a `stop` az agent **biztonsági**
+  parancsa, ez külön döntést igényel: vagy a `stop` nem igényel nyugtát, vagy a quirk
+  dokumentálása kell. Élő robot-próbával igazolandó — addig nyitott.
 
 ## 2026-10-21 — A projekt átköltözött: `mikes28/codie-webcontrol`
 
