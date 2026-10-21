@@ -2,6 +2,24 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.4.0] — 2026-10-21
+
+### Added
+- **Beépített LED-animáció (`ledAnim`)** a routing nélküli generációhoz. A protokollban
+  a `CMD_SET_ANIMATION` (0x0009) már deklarálva volt, de se kliensmetódus, se parancs
+  nem használta. A [codiejs](https://github.com/zbettenbuk/codiejs/blob/master/lib/codie.js)
+  referencia szerint a frame `animation | hue | sat | repeat | speed`, ahol az animáció
+  sorszáma **0 vagy 1** (*"Possible animation values: 0, 1"*) — a szín a `setColor`
+  skáláján megy ki (hue 0-360 ×0,7; sat 0-100 ×2,55).
+  - Kliens: `CodieClient.ledAnimation(animation, { color, repeat, speed })`.
+  - Parancsréteg: `ledAnim` a `COMMAND_NAMES`-ben → REST (`POST /api/robots/:address/command`),
+    CLI (`node scripts/control.js anim 1 red`) és konzol (`anim <0|1> [szín]`).
+  - Felület: **Anim 1** / **Anim 2** gombok a Fény csoportban (a legutóbb kiválasztott
+    LED-színben futnak).
+  - A **routingos** generációban a `LedStartAnim` (0x1066) paraméterei nem dokumentáltak
+    (a `comApi.h` csak a parancsot listázza) → ott a parancs szabályos hibát ad (501),
+    nem találgat paramétereket.
+
 ## [0.3.1] — 2026-10-21
 
 ### Fixed

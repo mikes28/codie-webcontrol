@@ -15,6 +15,11 @@ import { createApp } from '../src/app.js';
 import { attachRealtime } from '../src/realtime.js';
 import { RobotRegistry } from '../src/ble/registry.js';
 import { FakeCodie, FakeNoble, FakeScanner } from './fake-robot.js';
+import {
+  FakeNoRoutingCodie,
+  FakeNoRoutingNoble,
+  FakeNoRoutingScanner,
+} from './fake-robot-norrouting.js';
 
 const FILTERS = {
   nameFilter: 'Codie',
@@ -152,6 +157,45 @@ test('a REST API a hamis robottal is végigfut', async () => {
 
     const telemetry = await fetch(`${base}/api/robots/00:07:80:66:F0:DB/telemetry`);
     assert.equal((await telemetry.json()).address, '00:07:80:66:F0:DB');
+  } finally {
+    server.close();
+  }
+});
+
+test('a REST API a routing nélküli generáción is végigfut (a LED-animációval)', async () => {
+  const robot = new FakeNoRoutingCodie();
+  const registry = new RobotRegistry({
+    noble: new FakeNoRoutingNoble([robot]),
+    filters: FILTERS,
+    scanner: new FakeNoRoutingScanner([robot]),
+    telemetryMs: 0,
+  });
+  const app = createApp({ registry, filters: FILTERS });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const address = robot.address;
+
+  try {
+    const connect = await fetch(`${base}/api/robots/${address}/connect`, { method: 'POST' });
+    assert.equal(connect.status, 200);
+    assert.equal((await connect.json()).connected, true);
+
+    const command = await fetch(`${base}/api/robots/${address}/command`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'ledAnim', params: { animation: 1, color: 'blue' } }),
+    });
+    assert.equal(command.status, 200);
+    const body = await command.json();
+    assert.equal(body.action, 'ledAnim');
+    assert.equal(body.animation, 1);
+    // a frame a robotig ért: animáció 1, a kék szín a firmware skáláján
+    // (a táblázatban a hue 0-255 skálán 170 → floor((170/255)*360*0,7) = 168;
+    //  a sat: round((255/255)*100*2,55) = 255)
+    assert.equal(robot.lastAnimation.animation, 1);
+    assert.equal(robot.lastAnimation.hue, 168);
+    assert.equal(robot.lastAnimation.sat, 255);
   } finally {
     server.close();
   }

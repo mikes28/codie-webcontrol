@@ -49,6 +49,8 @@ const VARIANT_TITLES = {
 
 let robots = [];
 let activeAddress = null;
+/** Az utolsóra kiválasztott LED-szín — a beépített animációk ezt használják. */
+let lastLedColor = 'red';
 /** A kiválasztott robot utolsó telemetriaadata (a frissesség jelzéséhez). */
 let lastTelemetry = null;
 /** A mikrofon figyelése folyamatban (a szintmérő). */
@@ -328,6 +330,11 @@ document.querySelectorAll('[data-cmd]').forEach((button) => {
     if (button.dataset.degrees) params.degrees = Number(button.dataset.degrees);
     if (button.dataset.ms) params.ms = Number(button.dataset.ms);
     if (button.dataset.color) params.color = button.dataset.color;
+    if (button.dataset.animation !== undefined) {
+      params.animation = Number(button.dataset.animation);
+    }
+    // a beépített animáció a legutóbb kiválasztott színben fut
+    if (name === 'ledAnim' && !params.color) params.color = lastLedColor;
     sendCommand(name, params);
   });
 });
@@ -335,6 +342,7 @@ document.querySelectorAll('[data-cmd]').forEach((button) => {
 document.getElementById('led-buttons').addEventListener('click', (event) => {
   const button = event.target.closest('[data-color]');
   if (!button) return;
+  lastLedColor = button.dataset.color;
   sendCommand('led', { color: button.dataset.color });
 });
 

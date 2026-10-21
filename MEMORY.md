@@ -5,6 +5,27 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ---
 
+## 2026-10-21 — Beépített LED-animáció (v0.12.0)
+
+- **A felfedezett üres hely:** a routing nélküli protokollban a `CMD_SET_ANIMATION` (0x0009)
+  deklarálva volt, a hamis robot is kezelte — de **se kliensmetódus, se parancs nem
+  használta**. A repo nyitott listáján szerepelt is („Opcionális: LedStartAnim (0x1066)
+  beépített animációk").
+- **A dokumentáció forrása:** a [codiejs](https://github.com/zbettenbuk/codiejs) referencia
+  (`lib/codie.js`): `setAnimation(animation, hue, saturation, repeat, speed)`, a frame
+  `0x09` → `animation | hue | sat | repeat | speed`, és a megjegyzés:
+  *"Possible animation values: 0, 1"* → **két** beépített animáció van.
+- **A szín skálája:** a `setColor`-hoz hasonló (hue 0-360 ×0,7; sat 0-100 ×2,55) — ezt a
+  `setColor` élőben igazolt értékeire alapoztuk. A `repeat` és a `speed` firmware-szemantikája
+  nem dokumentált → a parancsréteg változtatás nélkül átadja őket.
+- **A routingos generációban nincs implementáció:** a `LedStartAnim` (0x1066) paraméterei
+  a `comApi.h`-ban nem szerepelnek → ott a kliens szabályos hibát dob (501), nem találgat.
+- **Hány felületen érendő el:** kliens (`ledAnimation()`), parancsréteg (`ledAnim` → REST),
+  CLI (`control.js anim 1 red`), konzol (`anim <0|1> [szín]`), felület (**Anim 1 / Anim 2**
+  gombok a Fény csoportban, a legutóbb kiválasztott színnel).
+- **Tesztek:** +5 (kliensszint: a frame `SET_ANIMATION` + a nyugta; parancsréteg: a
+  paraméterek átadása és a 0/1 vágás; routingos generáció: a hiba eldobása).
+
 ## 2026-10-21 — A szerver újraindítása + a BLE-listener szivárgás javítása
 
 - **Kérés:** „nem fut, indítsd el”. Valójában a HTTP-szerver **futott** (20 órája, detached

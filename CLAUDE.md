@@ -21,7 +21,7 @@ fogadott és végrehajtott parancsot (SpeakBeep) — ismételhetően igazolva. K
 **hivatalos Codie BLE API v1.0** dokumentáció + `comApi.h` (lásd `docs/comApi.h`), amely a
 visszafejtett protokollt teljesen igazolta (egy hibát is feltárt: a HSV 0-255, nem 0-100).
 
-**Jelenlegi állapot (v0.3.1):** működő Python package (`CodieClient`), minden funkció élőben
+**Jelenlegi állapot (v0.4.0):** működő Python package (`CodieClient`), minden funkció élőben
 igazolva (szenzorok, hang, mozgás, LED), hang/ritmus/Morse réteg, FFT-alapú frekvenciamérés
 (a csipogó ~2483 Hz-es önrezgő buzzer), egy MCP szerver a Hermes-integrációhoz, és egy
 **Express.js web-backend** (`server/`), amely **mindkét Codie-generációt** beszél

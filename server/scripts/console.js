@@ -7,8 +7,8 @@
  *
  * Parancsok: help, scan, robots, connect <cím>, disconnect, use <cím>,
  * status, battery, sonar, light, line, mic, led <szín> [index], leds off,
- * beep [ms], morse <szöveg>, tune <név>, forward [cm], backward [cm],
- * turn [fok], stop, quit.
+ * anim <0|1> [szín], beep [ms], morse <szöveg>, tune <név>, forward [cm],
+ * backward [cm], turn [fok], stop, quit.
  */
 
 import readline from 'node:readline';
@@ -38,6 +38,7 @@ Parancsok:
   battery | sonar | light | line | mic
   led <szín> [index]     LED-ek (white|green|red|blue|cyan|yellow|orange)
   leds off               LED-ek kikapcsolva
+  anim <0|1> [szín]      beépített LED-animáció (routing nélküli generáció)
   beep [ms]              sípolás
   morse <szöveg>         Morse-kód
   tune <név>             beépített ritmus
@@ -129,6 +130,13 @@ async function handle(line) {
     case 'leds': {
       await registry.command(activeAddress, 'ledsOff', {});
       console.log('LED-ek kikapcsolva.');
+      return;
+    }
+    case 'anim': {
+      const animation = Number(args[0] ?? 0);
+      const color = args[1] ?? 'red';
+      await registry.command(activeAddress, 'ledAnim', { animation, color });
+      console.log(`Animáció ${animation} (${color}).`);
       return;
     }
     case 'beep': {

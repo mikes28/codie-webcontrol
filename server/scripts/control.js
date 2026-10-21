@@ -22,7 +22,7 @@ const commandName = positional[0];
 if (!commandName) {
   console.error(
     'Használat: node scripts/control.js [--robot <CÍM>] <parancs> [érték]\n' +
-      'Parancsok: led|leds|beep|morse|tune|forward|backward|turn|stop|status|battery|sonar|light|line|mic',
+      'Parancsok: led|leds|anim|beep|morse|tune|forward|backward|turn|stop|status|battery|sonar|light|line|mic',
   );
   process.exit(2);
 }
@@ -42,6 +42,12 @@ function buildCommand() {
       return { name: 'led', params: { color: args[0] ?? 'green' } };
     case 'leds':
       return { name: 'ledsOff', params: {} };
+    case 'anim':
+      // anim <0|1> [szín] — a beépített LED-animáció
+      return {
+        name: 'ledAnim',
+        params: { animation: Number(args[0] ?? 0), color: args[1] ?? 'red' },
+      };
     case 'beep':
       return { name: 'beep', params: { ms: Number(args[0] ?? 500) } };
     case 'morse':

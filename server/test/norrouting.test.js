@@ -196,6 +196,23 @@ describe('No-routing CodieClient', () => {
     assert.deepEqual(last.params, Buffer.from([0, 0, 0]));
   });
 
+  test('ledAnimation() a SET_ANIMATION parancsot küldi (animáció, hue, sat, repeat, speed)', async () => {
+    // a codiejs referencia: setAnimation(animation, hue, saturation, repeat, speed),
+    // az animáció sorszáma 0 vagy 1
+    await client.ledAnimation(1, { color: 'red', repeat: 3, speed: 20 });
+    const last = robot.receivedActions.at(-1);
+    assert.ok(last, 'az animáció-parancsnak el kell érnie a robotot');
+    assert.equal(last.cmd, np.CMD_SET_ANIMATION);
+    // a szín ugyanaz a skála, mint a SET_COLOR-nál (hue 0, sat 255 a pirosnál)
+    assert.deepEqual([...last.params], [1, 0, 255, 3, 20]);
+  });
+
+  test('a beépített animációt a firmware nyugtázza', async () => {
+    const reply = await client.ledAnimation(0, { color: 'blue' });
+    assert.ok(reply, 'a nyugta meg kell érkezzen');
+    assert.notEqual(reply, null);
+  });
+
   test('beep(500) a volume, frekvencia és időtartam bájtjait küldi (u16 LE)', async () => {
     await client.beep(500);
     const last = robot.receivedActions.at(-1);

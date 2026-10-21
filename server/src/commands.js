@@ -19,6 +19,7 @@ export const COMMAND_NAMES = [
   'led',
   'ledSingle',
   'ledsOff',
+  'ledAnim',
   'forward',
   'backward',
   'turn',
@@ -133,6 +134,19 @@ export async function runCommand(client, name, params = {}) {
     case 'ledsOff': {
       requireAck(await client.ledsOff(), 'ledsOff');
       return { action: 'ledsOff' };
+    }
+    case 'ledAnim': {
+      // a codiejs referencia szerint két beépített animáció van (0 és 1)
+      const animation = numberParam(params.animation ?? 0, 'animation', {
+        min: 0,
+        max: 1,
+        integer: true,
+      });
+      const color = String(params.color ?? 'red');
+      const repeat = numberParam(params.repeat ?? 0, 'repeat', { min: 0, max: 255, integer: true });
+      const speed = numberParam(params.speed ?? 10, 'speed', { min: 0, max: 255, integer: true });
+      requireAck(await client.ledAnimation(animation, { color, repeat, speed }), 'ledAnim');
+      return { action: 'ledAnim', animation, color, repeat, speed };
     }
     case 'forward': {
       const cm = numberParam(params.cm ?? 10, 'cm', { min: 0, max: MAX_DISTANCE_CM });

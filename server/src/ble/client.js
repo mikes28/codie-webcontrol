@@ -845,6 +845,39 @@ export class CodieClient extends EventEmitter {
     return this.send(p.CMD_LED_SET_COLOR, Buffer.concat([p.u16(0x0fff), p.u8(0), p.u8(0), p.u8(0)]));
   }
 
+  /**
+   * Beépített LED-animáció (a routing nélküli generációban).
+   *
+   * A codiejs referencia: `setAnimation(animation, hue, saturation, repeat, speed)`,
+   * ahol az animáció sorszáma **0 vagy 1** (*"Possible animation values: 0, 1"*).
+   * A színt a firmware skálájában adjuk át — ugyanazzal a számítással, mint a
+   * `setColor` parancsnál (hue 0-360 ×0,7; sat 0-100 ×2,55).
+   *
+   * A `repeat` és a `speed` firmware-szemantikája nem dokumentált → a hívó
+   * próbálgathatja őket (a parancsréteg átadja őket változtatás nélkül).
+   *
+   * @param {number} animation a beépített animáció sorszáma (0 vagy 1)
+   * @param {{color?: string, repeat?: number, speed?: number}} options
+   */
+  async ledAnimation(animation, { color = 'red', repeat = 0, speed = 10 } = {}) {
+    if (this._variant !== 'no-routing') {
+      const error = new Error(
+        'A LED-animáció a routing nélküli generációban érhető el — a routingos ' +
+          'firmware animáció-parancsának (0x1066) paraméterei nem dokumentáltak.',
+      );
+      error.status = 501; // Not Implemented: ezen a generáción nincs ismert megvalósítás
+      throw error;
+    }
+    const [hue, sat] = this._colorParams(color);
+    return this._sendAction(np.CMD_SET_ANIMATION, [
+      animation & 0xff,
+      hue,
+      sat,
+      repeat & 0xff,
+      speed & 0xff,
+    ]);
+  }
+
   async driveSpeed(left, right) {
     if (this._variant === 'no-routing') {
       return this._sendAction(np.CMD_MOTOR_BOTH, [left & 0xff, right & 0xff]);

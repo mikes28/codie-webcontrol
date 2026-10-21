@@ -18,6 +18,7 @@ function fakeClient() {
     ledAll: record('ledAll'),
     ledSingle: record('ledSingle'),
     ledsOff: record('ledsOff'),
+    ledAnimation: record('ledAnimation'),
     playMorse: record('playMorse'),
     playTune: record('playTune'),
     driveDistance: record('driveDistance'),
@@ -48,6 +49,27 @@ test('a ledSingle egy megadott indexet állít', async () => {
   const client = fakeClient();
   await runCommand(client, 'ledSingle', { color: 'blue', index: 4 });
   assert.deepEqual(client.calls, [['ledSingle', 'blue', 4]]);
+});
+
+test('a ledAnim a beépített animációt indítja a megadott színnel', async () => {
+  const client = fakeClient();
+  const result = await runCommand(client, 'ledAnim', {
+    animation: 1,
+    color: 'blue',
+    repeat: 2,
+    speed: 30,
+  });
+  assert.deepEqual(client.calls, [['ledAnimation', 1, { color: 'blue', repeat: 2, speed: 30 }]]);
+  assert.equal(result.action, 'ledAnim');
+  assert.equal(result.animation, 1);
+});
+
+test('a ledAnim animációs sorszáma 0 vagy 1 lehet (a codiejs szerint)', async () => {
+  const client = fakeClient();
+  const result = await runCommand(client, 'ledAnim', { animation: 7 });
+  // a parancsréteg a tartományra vág (a forward cm-es korlátjához hasonlóan)
+  assert.equal(result.animation, 1);
+  assert.deepEqual(client.calls, [['ledAnimation', 1, { color: 'red', repeat: 0, speed: 10 }]]);
 });
 
 test('az előrehaladás cm-t milliméterre vált és 200 cm-re vág', async () => {

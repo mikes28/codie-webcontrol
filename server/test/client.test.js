@@ -144,3 +144,10 @@ test('az újracsatlakozás nem halmozza a BLE-listener-eket a karakterisztikán'
   assert.equal(notifyChar.listenerCount('data'), 1, 'az újracsatlakozás után is egy listener');
   await second.client.disconnect();
 });
+
+test('a LED-animáció a routingos generációban hibát ad (a paraméterei nem dokumentáltak)', async () => {
+  const { client } = await connectedClient();
+  // a routingos firmware animáció-parancsa (0x1066) argumentumai nincsenek
+  // dokumentálva → nem találgatunk, hanem szabályos hibát adunk
+  await assert.rejects(() => client.ledAnimation(0), /routing nélküli generációban/);
+});

@@ -83,8 +83,8 @@ Ezért:
 
 A `console.js` parancsai: `help`, `scan`, `robots`, `connect <cím>`, `disconnect`,
 `use <cím>`, `status`, `battery`, `sonar`, `light`, `line`, `mic`, `led <szín> [index]`,
-`leds off`, `beep [ms]`, `morse <szöveg>`, `tune <név>`, `forward [cm]`,
-`backward [cm]`, `turn <fok>`, `stop`, `quit`.
+`leds off`, `anim <0|1> [szín]`, `beep [ms]`, `morse <szöveg>`, `tune <név>`,
+`forward [cm]`, `backward [cm]`, `turn <fok>`, `stop`, `quit`.
 
 ## Élő érzékelőadatok és a mikrofon
 
@@ -144,8 +144,13 @@ A `RobotRegistry` (`src/ble/registry.js`) robotonként egy-egy `CodieClient`-et 
 | `/api/robots/:address/mic/stop` | POST | a mikrofon figyelésének leállítása |
 
 A `name` a `src/commands.js` parancsneve: `beep`, `morse`, `tune`, `led`, `ledSingle`,
-`ledsOff`, `forward`, `backward`, `turn`, `stop`, `status`, `battery`, `sonar`, `light`,
-`line`, `mic`.
+`ledsOff`, `ledAnim`, `forward`, `backward`, `turn`, `stop`, `status`, `battery`, `sonar`,
+`light`, `line`, `mic`.
+
+A `ledAnim` a **routing nélküli** generáció beépített LED-animációját indítja
+(`{ animation: 0|1, color, repeat?, speed? }`) — a routingos firmware
+animáció-parancsának (0x1066) paraméterei nem dokumentáltak, ezért ott a
+parancs szabályos hibát ad.
 
 Példa:
 
