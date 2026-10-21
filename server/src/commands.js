@@ -8,9 +8,14 @@
 
 'use strict';
 
+import { COLORS_RGB } from './ble/protocol.js';
+
 const DRIVE_SPEED = 40;
 const TURN_SPEED = 40;
 const MAX_DISTANCE_CM = 200;
+
+/** Hex szín: "#rrggbb" vagy "rrggbb" (a "#" opcionális, a kis-/nagybetű mindegy). */
+const HEX_COLOR = /^#?[0-9a-fA-F]{6}$/;
 
 export const COMMAND_NAMES = [
   'beep',
@@ -52,6 +57,34 @@ function numberParam(value, name, { min, max, integer = false } = {}) {
   if (min !== undefined) result = Math.max(min, result);
   if (max !== undefined) result = Math.min(max, result);
   return result;
+}
+
+/**
+ * Színparaméter validálása.
+ *
+ * A szín két alakban érkezhet:
+ * - **színnév**: a `COLORS_RGB` kulcsai (`white`, `green`, `red`, `blue`,
+ *   `cyan`, `yellow`, `orange`);
+ * - **hex string**: `"#rrggbb"` vagy `"rrggbb"` (a `#` opcionális).
+ *
+ * A valid érték **változatlanul** megy tovább a kliens felé — a hex feloldása
+ * a protokollréteg `colorHsv()` feladata.
+ *
+ * @param {unknown} value a kliensnek átadandó szín
+ * @param {string} name a paraméter neve (a hibaüzenetben)
+ * @returns {string} a szín változatlanul
+ */
+function colorParam(value, name) {
+  if (typeof value === 'string') {
+    if (Object.hasOwn(COLORS_RGB, value)) return value;
+    if (HEX_COLOR.test(value)) return value;
+  }
+  const error = new Error(
+    `Ismeretlen szín: ${JSON.stringify(value)} — a "${name}" paraméter színformátuma hibás. ` +
+      `Színnév (${Object.keys(COLORS_RGB).join(', ')}) vagy hex string ("#00ff00") kell.`,
+  );
+  error.status = 400;
+  throw error;
 }
 
 /**
@@ -121,12 +154,12 @@ export async function runCommand(client, name, params = {}) {
       return { action: 'tune', name: tune };
     }
     case 'led': {
-      const color = String(params.color ?? 'green');
+      const color = colorParam(params.color ?? 'green', 'color');
       requireAck(await client.ledAll(color), 'led');
       return { action: 'led', color };
     }
     case 'ledSingle': {
-      const color = String(params.color ?? 'green');
+      const color = colorParam(params.color ?? 'green', 'color');
       const index = numberParam(params.index ?? 1, 'index', { min: 1, max: 12, integer: true });
       requireAck(await client.ledSingle(color, index), 'ledSingle');
       return { action: 'ledSingle', color, index };
@@ -142,7 +175,7 @@ export async function runCommand(client, name, params = {}) {
         max: 1,
         integer: true,
       });
-      const color = String(params.color ?? 'red');
+      const color = colorParam(params.color ?? 'red', 'color');
       const repeat = numberParam(params.repeat ?? 0, 'repeat', { min: 0, max: 255, integer: true });
       const speed = numberParam(params.speed ?? 10, 'speed', { min: 0, max: 255, integer: true });
       requireAck(await client.ledAnimation(animation, { color, repeat, speed }), 'ledAnim');

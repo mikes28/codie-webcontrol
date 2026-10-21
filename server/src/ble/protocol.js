@@ -84,18 +84,57 @@ export const COLORS_RGB = {
   orange: [255, 200, 0],
 };
 
+/** Hex színforma: "#rrggbb" vagy "rrggbb" (a `#` opcionális, a hex jelsor kis- és nagybetűs). */
+const HEX_COLOR_RE = /^#?([0-9a-f]{6})$/i;
+
+/**
+ * Hex string → RGB értékek, vagy `null`, ha a bemenet nem hex szín.
+ * @param {unknown} value
+ * @returns {number[]|null} r, g, b — mind 0..255
+ */
+function hexToRgb(value) {
+  if (typeof value !== 'string') return null;
+  const match = HEX_COLOR_RE.exec(value);
+  if (!match) return null;
+  const packed = Number.parseInt(match[1], 16);
+  return [(packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff];
+}
+
+/**
+ * A megadott szín feloldása RGB értékekké — két alakot fogad:
+ * 1. színnév a `COLORS_RGB` kulcsai közül (`"red"`, `"green"`, ...);
+ * 2. hex string (`"#rrggbb"` vagy `"rrggbb"`, a `#` opcionális).
+ * @param {string} color
+ * @returns {number[]} r, g, b — mind 0..255
+ * @throws {Error} ismeretlen név vagy hibás hex esetén
+ */
+function resolveColorRgb(color) {
+  const key = typeof color === 'string' ? color : '';
+  // `hasOwnProperty`: az `Object.prototype` tagjai (pl. "toString") nem színek.
+  if (key && Object.prototype.hasOwnProperty.call(COLORS_RGB, key)) {
+    return COLORS_RGB[key];
+  }
+  const rgb = hexToRgb(key);
+  if (rgb) return rgb;
+  throw new Error(
+    `Ismeretlen szín: ${JSON.stringify(color)}. Hex formátumban ("#rrggbb" vagy "rrggbb") is megadható. Választható: ${Object.keys(COLORS_RGB).join(', ')}`,
+  );
+}
+
 /**
  * Egy szín HSV értéke 0..255 skálán (hivatalos Codie BLE API v1.0).
- * @param {string} name
- * @returns {[number, number, number]} [hue, saturation, value]
+ *
+ * Két alakot fogad: színnév (`"red"`) vagy hex string (`"#rrggbb"` / `"rrggbb"`).
+ * Mindkettő ugyanarra a 0..255-as HSV-skálára alakul (a név a `COLORS_RGB`
+ * táblából olvas, a hex RGB-re bontása után ugyanazt az `rgbToHsv`
+ * konverziót kapja).
+ *
+ * @param {string} color színnév vagy hex string
+ * @returns {[number, number, number]} [hue, saturation, value] mind 0..255
+ * @throws {Error} ismeretlen név vagy hibás hex esetén
  */
-export function colorHsv(name) {
-  const rgb = COLORS_RGB[name];
-  if (!rgb) {
-    throw new Error(
-      `Ismeretlen szín: ${JSON.stringify(name)}. Választható: ${Object.keys(COLORS_RGB).join(', ')}`,
-    );
-  }
+export function colorHsv(color) {
+  const rgb = resolveColorRgb(color);
   const [h, s, v] = rgbToHsv(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
   return [Math.trunc(h * 255), Math.trunc(s * 255), Math.trunc(v * 255)];
 }
@@ -191,13 +230,20 @@ export function beepArgs(durationMs) {
   return u16(Math.max(0, Math.min(durationMs, MAX_BEEP_MS)));
 }
 
-/** Mind a 12 LED egy színre (ledMask = 0x0FFF). */
+/**
+ * Mind a 12 LED egy színre (ledMask = 0x0FFF).
+ * @param {string} color színnév vagy hex string
+ */
 export function ledAllArgs(color) {
   const [h, s, v] = colorHsv(color);
   return Buffer.concat([u16(0x0fff), u8(h), u8(s), u8(v)]);
 }
 
-/** Egyetlen LED (index 1..12) beállítása. */
+/**
+ * Egyetlen LED (index 1..12) beállítása.
+ * @param {string} color színnév vagy hex string
+ * @param {number} index 1..12
+ */
 export function ledSingleArgs(color, index) {
   const i = Math.max(1, Math.min(index, 12));
   const mask = 1 << (i - 1);

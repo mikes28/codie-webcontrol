@@ -86,6 +86,10 @@ A `console.js` parancsai: `help`, `scan`, `robots`, `connect <cím>`, `disconnec
 `leds off`, `anim <0|1> [szín]`, `beep [ms]`, `morse <szöveg>`, `tune <név>`,
 `forward [cm]`, `backward [cm]`, `turn <fok>`, `stop`, `quit`.
 
+A `led` (és az `anim`) színparamétere itt **színnév vagy hex string** lehet:
+`led red` vagy `led "#ff8800"` — ugyanaz a két forma, amit a REST `led`/`ledSingle`
+parancs `color` mezője elfogad.
+
 ## Élő érzékelőadatok és a mikrofon
 
 A telemetria **érzékelőnként** érkezik: amikor egy mérés megérkezik, a szerver
@@ -147,6 +151,22 @@ A `name` a `src/commands.js` parancsneve: `beep`, `morse`, `tune`, `led`, `ledSi
 `ledsOff`, `ledAnim`, `forward`, `backward`, `turn`, `stop`, `status`, `battery`, `sonar`,
 `light`, `line`, `mic`.
 
+A `led` és a `ledSingle` parancs `color` paramétere **kétféle** alakot fogad:
+
+| Alak | Példa | Megjegyzés |
+|---|---|---|
+| színnév | `"white"`, `"green"`, `"red"`, `"blue"`, `"cyan"`, `"yellow"`, `"orange"` | a fix paletta |
+| hex string | `"#ff8800"` vagy `"ff8800"` | a `#` opcionális, a hex kis- és nagybetűs is lehet |
+
+A két forma ugyanazt a színt jelenti: a feloldás a protokollrétegben történik
+(`colorHsv()` a `src/ble/protocol.js`-ben), és a firmware saját skálájára alakul —
+a routing nélküli generációban hue 0-360 ×0,7 és sat/val 0-100 ×2,55, a routingos
+generációban a 0-255-as HSV.
+
+A színformátum hibája **400-as státusz** magyar hibaüzenettel (nem 500): ismeretlen
+színnév vagy hibás hex esetén a parancs elutasításra kerül, a LED-ek színe nem
+változik, és a robotnak nem megy ki parancs.
+
 A `ledAnim` a **routing nélküli** generáció beépített LED-animációját indítja
 (`{ animation: 0|1, color, repeat?, speed? }`) — a routingos firmware
 animáció-parancsának (0x1066) paraméterei nem dokumentáltak, ezért ott a
@@ -160,11 +180,19 @@ curl -X POST localhost:3000/api/robots/00:07:80:66:F0:DB/command \
   -d '{"name":"led","params":{"color":"red"}}'
 ```
 
+A szín hex stringként is megadható:
+
+```bash
+curl -X POST localhost:3000/api/robots/00:07:80:66:F0:DB/command \
+  -H 'content-type: application/json' \
+  -d '{"name":"led","params":{"color":"#ff8800"}}'
+```
+
 Hibaválaszok (a felület ezeket kiírja — nincs hamis „OK”):
 
 | Státusz | Jelentés |
 |---|---|
-| 400 | hibás paraméter (pl. nem szám a `cm`) |
+| 400 | hibás paraméter (pl. nem szám a `cm`, vagy a `color` formátuma hibás) |
 | 404 | ismeretlen robot cím |
 | 409 | a robot nincs csatlakoztatva |
 | 504 | a robot nem nyugtázta a parancsot / nem válaszolt az érzékelő kérésre |

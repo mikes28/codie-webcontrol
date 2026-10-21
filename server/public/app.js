@@ -31,6 +31,7 @@ const els = {
   micPeak: document.getElementById('mic-peak'),
   micHint: document.getElementById('mic-hint'),
   morseText: document.getElementById('morse-text'),
+  ledColor: document.getElementById('led-color'),
 };
 
 /** A szerver által támogatott generációk — a `/api/config` egészíti ki. */
@@ -343,7 +344,15 @@ document.getElementById('led-buttons').addEventListener('click', (event) => {
   const button = event.target.closest('[data-color]');
   if (!button) return;
   lastLedColor = button.dataset.color;
+  // a színválasztó is kövesse a palettát (a lapot a saját CSS-változója adja)
+  const hex = getComputedStyle(button).getPropertyValue('--led').trim();
+  if (/^#[0-9a-f]{6}$/i.test(hex)) els.ledColor.value = hex;
   sendCommand('led', { color: button.dataset.color });
+});
+
+// a saját (hex) szín: a böngésző színválasztójából azonnal a LED-ekre kerül
+els.ledColor.addEventListener('change', () => {
+  sendCommand('led', { color: els.ledColor.value });
 });
 
 document.querySelector('[data-cmd="morse"]').addEventListener('click', () => {
@@ -410,7 +419,10 @@ socket.on('telemetry', (robot) => {
 });
 
 socket.on('command-result', (payload) => {
-  setStatus(`OK: ${payload.action}`);
+  // a szín-parancsnál a kiválasztott színt is mutassuk (a „OK: led" önmagában
+  // nem árulja el, milyen szín ment ki)
+  const detail = payload.color ? ` (${payload.color})` : '';
+  setStatus(`OK: ${payload.action}${detail}`);
 });
 
 socket.on('error', (payload) => {

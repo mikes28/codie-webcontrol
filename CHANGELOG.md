@@ -2,6 +2,33 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.6.0] — 2026-10-21
+
+### Added
+- **Hex szín a `led` / `ledSingle` parancsban.** A `color` paraméter a hétt fix
+  színnév (`white`, `green`, `red`, `blue`, `cyan`, `yellow`, `orange`) mellett
+  mostantól **hex stringként** is megadható: `"#ff8800"` vagy `"ff8800"` (a `#`
+  opcionális, a hex betűi kis- és nagybetűs is lehet). A feloldás a protokollrétegben
+  van (`colorHsv()` a `src/ble/protocol.js`-ben): a hex RGB-re bontása után ugyanaz
+  az `rgbToHsv` konverzió fut, mint a színnévnél → a firmware saját skálája
+  (routing nélkül hue 0-360 ×0,7, sat/val 0-100 ×2,55; a routingos generációban
+  a 0-255-as HSV). A színnév és az azonos hex **ugyanazt** a színt jelenti
+  (`colorHsv('#00ff00')` = `colorHsv('green')`), és a 7 név HSV-értéke változatlan
+  (a Python `colorsys` referencia miatt — a `test/parity.test.js` bájtra bájtra
+  ellenőrzi).
+  - Parancsréteg: a `led`, `ledSingle` és `ledAnim` `color` paramétere elfogadja a
+    hexet; a **formátumhiba 400-as státusz** magyar hibaüzenettel (nem 500) — a
+    hibás értéknél a robotnak nem megy ki parancs.
+  - CLI és konzol: `node scripts/control.js led "#ff8800"`, illetve `led "#ff8800"`
+    a konzolban — ugyanaz a két forma, amit a REST API elfogad.
+  - Felület: **„Saját szín"** — a böngésző natív színválasztója
+    (`<input type="color">`) a Fény csoportban, a 7 fix színpaletta **után**, saját
+    sorban. A kiválasztott szín a `change` eseményen **azonnal** a `led` parancsot
+    küldi a hex értékkel (a frontenden nincs konverzió).
+  - Tesztek: +7 (`test/protocol.test.js`: a hex feloldása, a színnévvel való
+    egyenértékűség és a hexes LED-frame; `test/commands.test.js`: a hex átadása
+    és a hibás formátum → 400).
+
 ## [0.5.0] — 2026-10-21
 
 ### Added

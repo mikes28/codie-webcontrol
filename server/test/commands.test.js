@@ -45,6 +45,39 @@ test('a led parancs az összes LED-et állítja', async () => {
   assert.equal(result.color, 'red');
 });
 
+test('a led parancs a hex stringet változatlanul adja tovább', async () => {
+  const client = fakeClient();
+  const result = await runCommand(client, 'led', { color: '#00ff00' });
+  assert.deepEqual(client.calls, [['ledAll', '#00ff00']]);
+  assert.equal(result.color, '#00ff00');
+
+  // a "#" jeles és a jelsor nélküli alak is átmegy változatlanul
+  const bare = fakeClient();
+  await runCommand(bare, 'led', { color: '00ff00' });
+  assert.deepEqual(bare.calls, [['ledAll', '00ff00']]);
+});
+
+test('a ledSingle a hex stringet változatlanul adja tovább', async () => {
+  const client = fakeClient();
+  await runCommand(client, 'ledSingle', { color: '#0000ff', index: 4 });
+  assert.deepEqual(client.calls, [['ledSingle', '#0000ff', 4]]);
+});
+
+test('a hibás szín 400-as hibát dob, és a robotnak nem megy parancs', async () => {
+  for (const color of ['pink', '#12', ' red ', [255, 0, 0]]) {
+    const client = fakeClient();
+    await assert.rejects(
+      () => runCommand(client, 'led', { color }),
+      (error) => {
+        assert.equal(error.status, 400, `a(z) ${JSON.stringify(color)} színhibája 400 legyen`);
+        assert.match(error.message, /Ismeretlen szín/, 'a hiba magyar színüzenet');
+        return true;
+      },
+    );
+    assert.deepEqual(client.calls, [], 'hibás színnél egyetlen parancs se indult el');
+  }
+});
+
 test('a ledSingle egy megadott indexet állít', async () => {
   const client = fakeClient();
   await runCommand(client, 'ledSingle', { color: 'blue', index: 4 });

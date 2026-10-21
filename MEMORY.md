@@ -85,6 +85,32 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 - **Tesztek:** +5 (kliensszint: a frame `SET_ANIMATION` + a nyugta; parancsréteg: a
   paraméterek átadása és a 0/1 vágás; routingos generáció: a hiba eldobása).
 
+## 2026-10-21 — Saját LED-szín: hex támogatás (v0.6.0)
+
+- **A korlát:** a LED-szín eddig **7 fix színre** volt korlátozva
+  (`white|green|red|blue|cyan|yellow|orange`) — a felületen egy-egy gomb, a
+  `led`/`ledSingle` parancsban egy színnév. Bármilyen árnyalatot (egy halványkék,
+  egy türkiz, egy meleg narancs) nem lehetett beállítani, csak a hétt szín egyikét.
+- **A megoldás:** a `color` paraméter mostantól **színnév vagy hex string**
+  (`"#ff8800"`, a `#` opcionális, a hex betűi kis- és nagybetűs is lehet) lehet.
+- **Hogyan működik:** a feloldás a protokollrétegben van — a `colorHsv()` a
+  `protocol.js`-ben a nevet a `COLORS_RGB` táblából, a hexet RGB-re bontva olvassa,
+  és mindkettőn ugyanazt az `rgbToHsv` konverziót futtatja → a firmware saját
+  skálája (routing nélkül hue 0-360 ×0,7, sat/val 0-100 ×2,55; a routingos
+  generációban a 0-255-as HSV).
+- **A formátum-szerződés:** a név és a hex **ugyanazt a színt jelenti**
+  (`colorHsv('#00ff00')` = `colorHsv('green')`), és a 7 név értéke **változatlan**
+  marad — a Python `colorsys` referencia miatt, amit a `test/parity.test.js`
+  bájtra bájtra ellenőrzi. A parancsréteg (`colorParam()`) a formátumhibát
+  **400-as státusszal** és magyar hibaüzenettel adja vissza (nem 500, nem hamis
+  „OK"), és hibánál a kliens **egyáltalán nem fut le**.
+- **A felület:** a Fény csoportban a 7 fix gomb **után**, saját sorban a böngésző
+  **natív színválasztója** (`<input type="color">`, „Saját szín") — a kiválasztott
+  szín a `change` eseményen **azonnal** a `led` parancsot küldi a hex értékkel
+  (a frontenden nincs konverzió; a 7 gomb továbbra is színnévvel küld).
+- **Tesztek:** +7 (protokoll: a hex feloldása, a színnévvel való egyenértékűség és
+  a hexes LED-frame; parancsréteg: a hex átadása, a hibás forma → 400).
+
 ## 2026-10-21 — A szerver újraindítása + a BLE-listener szivárgás javítása
 
 - **Kérés:** „nem fut, indítsd el”. Valójában a HTTP-szerver **futott** (20 órája, detached
@@ -363,7 +389,15 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 
 ### Nyitott szálak
 - Beírni az élő `~/.hermes/config.yaml`-ba (user jóváhagyással): a `codie` MCP-szervert **és** a
-  skill `external_dirs`-t, majd `/reload-mcp` + skill-újratöltés.
+  skill `external_dirs`-t, majd `/reload-mcp` + skill-újratöltés. (A v0.5.0-tól az MCP a
+  JS backend REST API-ján át szól — a backendnek futnia kell, `CODIE_API_URL`/`CODIE_ADDRESS`.)
+- **A `stop` parancs nyugtázása** (2026-10-21): a routing nélküli firmware feltehetően **nem
+  nyugtázza** a `MOTOR_BOTH(0,0)`-t, ezért a backend 504-et ad („nem nyugtázta") — a robot
+  viszont megáll. El kell dönteni: a `stop` ne igényeljen nyugtát, vagy a quirk legyen
+  dokumentálva. **Élő robot-próbával igazolandó** (a robotnak szabadon kell állnia).
+- **A szerver indulása boot után** (2026-10-21): most `setsid nohup node src/index.js` indítja,
+  nincs szolgáltatás — egy systemd user unit (`Restart=always`, `After=bluetooth.target`)
+  megszüntetné a kézi indítást.
 - Reconnect mid-call retry finomítás (jelenleg a következő hívás csatlakozik újra).
 - Opcionális: `LedStartAnim` (0x1066) animációk; magasabb szintű skillek (vonalkövetés,
   szonár-akadálykerülés); Scratch-blokkos réteg újraélesztése.

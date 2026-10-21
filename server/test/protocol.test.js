@@ -65,6 +65,49 @@ test('ismeretlen szín hibát dob', () => {
   assert.throws(() => p.colorHsv('mauve'), /Ismeretlen szín/);
 });
 
+test('a hex szín ugyanazt a HSV-t adja a 0..255 skálán, mint a színnév', () => {
+  assert.deepEqual(p.colorHsv('#00ff00'), [85, 255, 255]);
+  assert.deepEqual(p.colorHsv('00ff00'), [85, 255, 255]);
+  // a hex jelsora nem számít
+  assert.deepEqual(p.colorHsv('#00FF00'), [85, 255, 255]);
+  assert.deepEqual(p.colorHsv('#ff0000'), [0, 255, 255]);
+  assert.deepEqual(p.colorHsv('#0000ff'), [170, 255, 255]);
+  assert.deepEqual(p.colorHsv('#ffffff'), [0, 0, 255]);
+});
+
+test('a hex szín egyenértékű a megfelelő színnévvel', () => {
+  assert.deepEqual(p.colorHsv('#ff0000'), p.colorHsv('red'));
+  assert.deepEqual(p.colorHsv('00ff00'), p.colorHsv('green'));
+  assert.deepEqual(p.colorHsv('#0000FF'), p.colorHsv('blue'));
+  assert.deepEqual(p.colorHsv('#ffffff'), p.colorHsv('white'));
+});
+
+test('a hibás színforma hibát dob', () => {
+  // a környező szóköz nem vágható le, és a hexnek pontosan 6 karaktere kell
+  const invalid = ['#12', 'zzz', ' red ', null, undefined, [255, 0, 0]];
+  for (const value of invalid) {
+    assert.throws(
+      () => p.colorHsv(value),
+      (error) => {
+        assert.ok(error instanceof Error, `a(z) ${JSON.stringify(value)} hibája Error legyen`);
+        assert.match(error.message, /Ismeretlen szín/, `a(z) ${JSON.stringify(value)} hibája magyar színüzenet`);
+        return true;
+      },
+    );
+  }
+});
+
+test('a hex szín ugyanazt a LED-frame-t adja, mint a színnév', () => {
+  assert.equal(
+    p.ledAllArgs('#ff0000').toString('hex'),
+    p.ledAllArgs('red').toString('hex'),
+  );
+  assert.equal(
+    p.ledSingleArgs('#0000ff', 3).toString('hex'),
+    p.ledSingleArgs('blue', 3).toString('hex'),
+  );
+});
+
 test('a válasz dekódolása', () => {
   const resp = p.decodeResponse(Buffer.from([0x10, 0x2a, 0x00, 0x69, 0x10, 0x01, 0x00, 0x07, 0x00, 0x5a]));
   assert.equal(resp.seq, 42);

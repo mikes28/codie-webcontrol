@@ -858,6 +858,7 @@ export class CodieClient extends EventEmitter {
    *
    * @param {number} animation a beépített animáció sorszáma (0 vagy 1)
    * @param {{color?: string, repeat?: number, speed?: number}} options
+   *   a szín színnév vagy hex string ("#00ff00") lehet
    */
   async ledAnimation(animation, { color = 'red', repeat = 0, speed = 10 } = {}) {
     if (this._variant !== 'no-routing') {
