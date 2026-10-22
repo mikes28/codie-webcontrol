@@ -87,6 +87,17 @@
         </div>
 
         <div class="group">
+          <h3>Scriptek <small class="muted">(a weboldal Python scriptje futtatja)</small></h3>
+          <div class="buttons">
+            <select id="script-select" class="select" aria-label="Robot-script"></select>
+            <button class="btn btn-primary" id="script-run">Futtatás</button>
+            <button class="btn btn-danger" id="script-stop" disabled>Leállítás</button>
+          </div>
+          <p class="muted small" id="script-hint">—</p>
+          <pre id="script-log" class="script-log"></pre>
+        </div>
+
+        <div class="group">
           <h3>Mikrofon</h3>
           <p class="muted small">
             A robot mikrofonja nem hangot ad, hanem nyers erősségi értéket (0–2048) —

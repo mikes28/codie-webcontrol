@@ -2,6 +2,58 @@
 
 A projekt verziózása [semver](https://semver.org/lang/hu/) szerint.
 
+## [0.7.0] — 2026-10-22
+
+### Added
+- **`codie/console.py` — a robot firmware-jének parancsnyelve Pythonban.** A visszafejtett
+  STM32 firmware (0.5.0hw2.1) a BLE modullal **szöveges** protokollon beszél:
+  `<get|set|call> <interface> <op> [args…]`, a válasz `<word> <interface> <op> [value]`,
+  az üzenet `call :proxy message <level> <text>`, a köszöntő
+  `call :proxy greeting "k":"v" … "msg:<text>"`. A modul a C referencia
+  (`fw/modules/proxy.c`) byte-exakt portja, és tartalmazza a **16 interfész
+  regiszterét** az opokkal, argumentumokkal, egységekkel és quirkekkel:
+  - a firmware az érzékelőértékeket **hexadecimálisan** írja ki (csak a `hwiAdc buf` decimális);
+  - a `drvBattery` és a `hwiDrive` válaszai `set` szóval jönnek, akár `get` kérésre is;
+  - a `hwiDrive dutyA/dutyB`, a `hwiPower pwrOff` és az `appSys hwInit` nem válaszol;
+  - a `hwiDrive` duty argumentuma hex, −1000..+1000-re vágva.
+- **`codie/wire_norrouting.py` — a routing nélküli generáció BLE frame-formátuma Pythonban**
+  (eddig csak JS-ben létezett): `SEQ|CMD|ARG`, a változó hosszúságú érték dekódolása,
+  a vonalérzékelő fix-pontos értéke (2^20, küszöb 30), a firmware színskálája
+  (hue 0-360 ×0,7; sat/val 0-100 ×2,55).
+- **`codie/robot.py` — a robot magas szintű API-ja bármilyen transzport fölött.**
+  A parancsszótár megegyezik a backend `src/commands.js` rétegével; a `stop` a hiányzó
+  nyugtát nem tekinti hibának (a routing nélküli firmware nem nyugtázza a `MOTOR_BOTH(0,0)`-t,
+  noha a robot megáll).
+- **A weboldal Python kommunikációs scriptje** (`server/python/codie_comm.py`) és a
+  **robot-scriptek** (`server/python/scripts/`): a backend elindítja a futtatót, a script a
+  `codie` API-ját használja a backend REST API-ján át (a BLE rádiót egyetlen kliens,
+  a backend birtokolja), és JSON-soros eseményeket streamel. A scriptek egy-egy
+  `run(ctx)` függvény (`ctx.robot`, `ctx.log`, `ctx.wait`); minden mozgás véges, a futás
+  végén és hibánál is `stop`, és van időhatára (`CODIE_SCRIPT_TIMEOUT_MS`).
+  Mellékelve: négyzetes kör, őrjárat (szonárral kerüli az akadályokat), vonalkereső, üdvözölés.
+- **A felület „Scriptek" csoportja** — script-választó, Futtatás/Leállítás gomb és élő napló.
+  A REST API: `GET /api/scripts`, `POST|GET|DELETE /api/robots/:address/script`; a socketon
+  a `script:event` (szerver → kliens) és a `script:start`/`script:stop` (kliens → szerver).
+- **`GET /api/firmware`** — a visszafejtett firmware interfész-regisztere (a 16 interfész az
+  opjaival, argumentumaival, egységeivel és quirkjeivel) a `codie/console.py`-ból.
+- **A paritás-teszt kiterjedt:** a `server/test/parity.test.js` mostantól **mindkét**
+  generációt ellenőrzi (a routing nélküli JS port eddig paritás-teszt nélkül volt).
+
+### Changed
+- **A Python csomag újraírva a visszafejtett firmware alapján.** A `codie/protocol.py`
+  (a Java repo `DataPackage.java` frame-jeinek portja) helyett `codie/wire.py` +
+  `codie/wire_norrouting.py` — a két generáció BLE frame-formátuma, paritás-referenciaként
+  a JS portokhoz. A `codie/api.py` a kényelmi metódusait a `codie/robot.py`-ra delegálja.
+- **Az általános szövegek a firmwarere hivatkoznak** a Java repo helyett (a `CLAUDE.md`,
+  a `README.md` és a `server/README.md` is).
+
+### Removed
+- `codie/protocol.py` és `tests/test_protocol.py` (a `wire.py`/`test_wire.py` helyett).
+- `firmware/docker/Dockerfile` — árva: a firmware-build a RE-projektben van
+  (`~/Documents/codie-firmware-dump/fw/`), ez a repó nem fordít firmware-t.
+- A `codie/tunes.py` halott `names()` függvénye és a `server/src/ble/protocol.js` két
+  nem használt parancs-ID-ja (`CMD_LED_START_ANIM`, `CMD_SWITCH_BOOTLOADER`).
+
 ## [0.6.0] — 2026-10-21
 
 ### Added

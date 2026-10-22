@@ -4,6 +4,100 @@ Időrendi napló a Codie BLE-vezérlés felélesztéséről. A tartós technikai
 [CLAUDE.md](CLAUDE.md)-ben van; ide a döntések, mérföldkövek és incidensek kerülnek.
 
 ---
+## 2026-10-22 — A Python újraírva a visszafejtett firmware alapján + a weboldal Python scriptje (v0.7.0)
+
+- **A kérés:** „remake the whole python" a visszafejtett firmware alapján, a fölösleg
+  eltávolítása, és egy **a weboldalhoz használható script** — kiderült, hogy a
+  weboldal **Python kommunikációs scriptjét** kell megírni (nem a dump mappához nyúlni:
+  az read-only referencia).
+- **A firmware tényleges protokollja (a RE-ből):** a STM32 **nem** bináris frame-eket
+  beszél a BLE modullal, hanem egy **szöveges** konzol-protokollon:
+  `<get|set|call> <interface> <op> [args]`, a válasz `… <value>`, az üzenet
+  `call :proxy message <level> <text>`, a köszöntő `call :proxy greeting "k":"v" …`.
+  16 interfész, `strtok`-os tokenizálás, 40 byte-os parancssor.
+- **A projektben eddig nem volt tudás róla** — a Python a Java repo `DataPackage.java`
+  frame-jeit portolta. Az új `codie/console.py` a C referencia (`fw/modules/proxy.c`)
+  byte-exakt portja, **a szemantikával együtt**:
+  - a firmware az érzékelőértékeket **hexadecimálisan** írja ki (csak a `hwiAdc buf` decimális);
+  - a `drvBattery`/`hwiDrive` válaszai `set` szóval jönnek, akár `get` kérésre is;
+  - a `hwiDrive dutyA/dutyB`, a `hwiPower pwrOff` és az `appSys hwInit` **nem válaszol**;
+  - a `hwiDrive` duty argumentuma **hex**, −1000..+1000-re vágva.
+- **Az új Python csomag:**
+  - `codie/console.py` — a firmware parancsnyelve + az interfész-regiszter (opok, egységek, quirkek);
+  - `codie/wire.py` (a routingos generáció frame-e, a régi `protocol.py` helyett) és
+    `codie/wire_norrouting.py` (**új**: a routing nélküli generáció frame-e, ami eddig
+    csak JS-ben létezett) — mindkettő paritás-referencia;
+  - `codie/robot.py` — a magas szintű robot-API **bármilyen transzport fölött** (a
+    parancsszótár a backend `src/commands.js` rétegével azonos);
+  - `codie/api.py` — a REST transzport (a kényelmi metódusok a `Robot`-ra delegálnak).
+- **A weboldal Python kommunikációs scriptje** (`server/python/codie_comm.py`): a backend
+  elindítja, a script a `codie` API-jával hajtja végre a lépéseket **a backend REST
+  API-ján át** (a BLE rádiót egyetlen kliens birtokolja — a backend), és JSON-soros
+  eseményeket streamel. Biztonság: minden mozgás véges, a futás végén és hibánál is
+  `stop`, időhatár (`CODIE_SCRIPT_TIMEOUT_MS`), SIGTERM-re azonnali leállás.
+- **A scriptek maguk Python-fájlok** (`server/python/scripts/`): `square` (négyzetes kör),
+  `patrol` (szonárral kerüli az akadályokat), `find_line` (vonalkereső), `hello`
+  (üdvözölés). Egy script egy `run(ctx)` függvény; a `ctx` a robot API-t, a naplót és
+  a megszakítható várakozást adja.
+- **A felület:** új „Scriptek" csoport (script-választó, Futtatás, Leállítás, élő napló).
+  A REST: `GET /api/scripts`, `POST|GET|DELETE /api/robots/:address/script`; a socketon
+  a `script:event` (a `script:start`/`script:stop` a másik irány).
+- **A paritás kiterjedt:** a `parity.test.js` mostantól **mindkét** generációt ellenőrzi
+  (a routing nélküli JS port eddig paritás-teszt nélkül volt).
+- **Takarítás (csak az új elkészülte után):** törölve `codie/protocol.py` (felváltva a
+  `wire.py`/`wire_norrouting.py`), `tests/test_protocol.py` (→ `test_wire.py`), a
+  `firmware/docker/Dockerfile` (árva: a firmware-build a RE-projektben van), a
+  `codie/tunes.py` halott `names()` függvénye, a `protocol.js` két nem használt
+  parancs-ID-ja (`CMD_LED_START_ANIM`, `CMD_SWITCH_BOOTLOADER`). A `scratchpad/` (a flash
+  dump duplikája) és a `scripts/dfu/` (a DFU eszközök) **maradt** — azok a DFU
+  dokumentációhoz tartoznak.
+- **Nyitott / nem igazolt:** a `request` karakterisztika (`25ad752e…`) lehet, hogy a
+  firmware **proxy** csatornája (a szöveges protokoll a telefonon át) — ezt élőben kell
+  kideríteni (a robotnak ébren kell lennie). A vonalérzékelő irányjelzése továbbra sem
+  ismert (ezért a `find_line` csak keres, nem követ).
+
+---
+## 2026-10-21 — A robot maga bontja a BLE-kapcsolatot: DFU/bootloader módban maradt
+
+- **A tünet:** a backend `POST /api/robots/00:07:80:66:F0:DA/connect` hibája
+  `le-connection-abort-by-local`; nyers `bluetoothctl connect` viszont "Connection
+  successful"-t ír, és ~2 mp múlva a link leesik (`Connected: no`). **Nem a kód hibája** —
+  a nyers BlueZ-útvonal is ugyanezt adja.
+- **A robot él:** hirdet (rssi -53, név "Codie", service UUID
+  `d46e7e53-ba2f-4044-ade9-f85ead45f458`), tehát a BLE-modul megvan és hirdet.
+- **A kernel naplója a döntő:** 14:51:01-kor a robot STM32-je
+  `0483:df11 STM32 BOOTLOADER`-ként jelent meg (az alkalmazás USB-perifériát nem
+  használ → bootloaderben volt, nem futott az app), majd USB-lecsatlakozott.
+  Az alkalmazás bootja indítja újra a BLE-modult is (`BLE-boot`, `BLE-RSP HELLO`
+  a firmware-stringekben) → bootloaderben a modul stale marad: a robot elfogadja a
+  linket, majd ledobja.
+- **A firmware-tartalom nem sérült:** a visszaolvasott hash azonos az eredetivel, mert
+  ugyanaz a kép került visszaírásra. Ez a *boot-módra* nem mond semmit — a tartalom
+  rendben van, az *állapot* rossz.
+- **A `scripts/dfu/backup.sh` buktatója:** a flash-ot `:leave` nélkül olvassa, és csak
+  az option-bytes olvasás (alt 1) zárja `:leave`-rel → `--no-option-bytes` esetén a chip
+  **DFU módban marad**. A `flash.sh` / `restore.sh` `:leave`-rel ír, tehát az app elindul.
+- **A konkrét hibás művelet:** a mentést nem a repo `scripts/dfu/backup.sh` csinálta, hanem
+  a külön RE-projekt (`~/Documents/codie-firmware-dump/`) saját `fw/flash.sh`-e: az kiírja
+  a képet, visszaolvassa (a hash egyezik → a flash rendben van), és **soha nem hagyja el a
+  DFU módot** — a chip a ROM bootloaderen futott tovább, az alkalmazás nem indult el.
+  A kernel ezt 14:51:01-kor rögzítette is: `0483:df11 STM32 BOOTLOADER`.
+- **Javítások:** (a) `codie-firmware-dump/fw/flash.sh` a verifikáció után `:leave`-et
+  küld (a chip az alkalmazásba indul); (b) a repo `scripts/dfu/backup.sh` `--no-option-bytes`
+  esetén is kilép a DFU módból (új `leave_dfu()` lépés); (c) a tanulság bekerült a RE-projekt
+  MEMORY.md "gotchas" részébe is. A `scripts/dfu/selftest.sh` 6/6 zöld maradt.
+- **Gyógyítás:** (a) akkumulátor kikapcsolás → bekapcsolás; vagy (b) USB-re plugolás,
+  majd `dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave` (a repo `scripts/dfu/` eszközei;
+  a `backup.sh` a flash + option bytes mentésével együtt kilép DFU-ból) → app boot,
+  BLE helyreáll. Az option bytes-okat eddig nem mentettük — érdemes megnézni, nem
+  kényszerít-e bootloadert.
+- **Árhullámok, amik „klienshiba" látszatot adtak:** (1) a BlueZ a távoli eszköz saját
+  bontását is `le-connection-abort-by-local`-nak nevezi (HCI 0x16 = „Connection
+  Terminated By Local Host", de a robot küldi) — a noble ilyenkor `disconnected: remote`-ot
+  ír; (2) ha a futó backend auto-connectje és egy kézi kliens ugyanahhoz a robothoz
+  csatlakozik, a kernel megszakítja a korábbi kapcsolatkérést → ugyanaz a hiba. Egy
+  kliens legyen egyszerre a rádión.
+
 ## 2026-10-21 — A Python BLE réteg törlése (v0.5.0)
 
 - **A kérdés, ami felmerült:** miért is volt két külön BLE-kliens? A Python `CodieClient`

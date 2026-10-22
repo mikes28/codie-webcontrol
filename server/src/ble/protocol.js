@@ -1,9 +1,9 @@
 /**
  * Codie BLE wire-protokoll — frame kódolás/dekódolás (JavaScript port).
  *
- * A Python `codie/protocol.py` 1:1 portja: azonos parancs-ID-k, azonos
+ * A Python `codie/wire.py` 1:1 portja: azonos parancs-ID-k, azonos
  * little-endian frame-elrendezés, azonos HSV 0-255 skála. A `test/parity.test.js`
- * összehasonlítja a két implementáció bájtra bájtra, így a port nem csúszhat el.
+ * összehasonlítja a két implementációt bájtra bájtra, így a port nem csúszhat el.
  *
  * Frame (little-endian, max 20 byte):
  *   INFO(1) | SEQ(2) | CMD(2) | ARGLEN(2) | ARGDAT...
@@ -55,14 +55,12 @@ export const CMD_DRIVE_TURN = 0x1062;       // degree u16 (°), speed i8  (+ bal
 export const CMD_SONAR = 0x1063;            // (szenzor) -> range u16 (mm)
 export const CMD_SPEAK_BEEP = 0x1064;       // duration u16 (ms, max 10000)
 export const CMD_LED_SET_COLOR = 0x1065;    // ledMask u16, hue u8, sat u8, val u8  (HSV 0-255!)
-export const CMD_LED_START_ANIM = 0x1066;   // beépített animáció
 export const CMD_APP_CONNECTED = 0x1067;    // app csatlakozás jelzése az MCU-nak
 export const CMD_APP_DISCONNECTED = 0x1068;  // app leválás jelzése
 export const CMD_BATTERY = 0x1069;          // (szenzor) -> soc u8 (%)
 export const CMD_LIGHT = 0x106a;            // (szenzor) -> u16 (12 bit)
 export const CMD_LINE = 0x106b;             // (szenzor) -> left u16, right u16 (12 bit)
 export const CMD_MIC = 0x106c;             // (szenzor) -> u16
-export const CMD_SWITCH_BOOTLOADER = 0x106d; // VESZÉLYES — bootloaderbe vált, ne használd
 export const CMD_BATTERY_VOLTAGE = 0x106e;  // (szenzor) -> u16; ezen a firmware-en nincs válasz
 
 // A válaszcsomagban innen kezdődnek az argumentumok:

@@ -1,10 +1,11 @@
 /**
  * Codie BLE wire-protokoll — **routing nélküli** generáció (JS port).
  *
- * A repo Python `codie/protocol.py` a routingos generációt beszélí (INFO|SEQ|CMD|
+ * A repo Python `codie/wire.py` a routingos generációt beszélí (INFO|SEQ|CMD|
  * ARGLEN frame, `52af0001/2/3` UUID-k). Ez a modul a **másik** Codie-generáció
  * protokollja, amit a [zbettenbuk/codiejs](https://github.com/zbettenbuk/codiejs)
- * projekt dokumentál ("robots that don't use the routing parameter").
+ * projekt dokumentál ("robots that don't use the routing parameter") — a Python
+ * tükörképe a `codie/wire_norrouting.py`.
  *
  * Különbségek:
  *   - nincs routing/INFO bájt: a frame `SEQ(2) | CMD(2) | PARAM...`;
@@ -18,6 +19,8 @@
  */
 
 'use strict';
+
+import { colorHsv } from './protocol.js';
 
 // --- BLE GATT azonosítók (a codiejs konfigurációja alapján) ---------------
 
@@ -135,4 +138,23 @@ export function decodeLine(payload) {
   const value = buf.length >= 4 ? buf.readUInt32LE(0) : 0;
   const level = Math.round((value / LINE_SCALE) * 100) / 100;
   return { value, level, onLine: level > LINE_THRESHOLD };
+}
+
+/**
+ * A LED színének paraméterei ebben a generációban.
+ *
+ * A firmware más skálát használ, mint a routingos generáció: a hue-t
+ * 0..360-ból ×0,7-szeresen, a saturation/value-ot 0..100-ból ×2,55-szeresen
+ * küldi (a 0..255-ös HSV-ból számolva).
+ *
+ * @param {string} color színnév vagy hex string
+ * @returns {[number, number, number]} hue, saturation, value
+ */
+export function colorParams(color) {
+  const [h, s, v] = colorHsv(color);
+  return [
+    Math.floor((h / 255) * 360 * 0.7) & 0xff,
+    Math.round((s / 255) * 100 * 2.55) & 0xff,
+    Math.round((v / 255) * 100 * 2.55) & 0xff,
+  ];
 }

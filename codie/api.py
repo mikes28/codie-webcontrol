@@ -1,9 +1,13 @@
 """Codie REST API kliens — szinkron, standard library alapú.
 
 A Codie robot BLE vezérlése a Node.js backend (BlueZ / noble) révén történik.
-Ez a modul a kapcsati (gateway) réteg: a valódi BLE kommunikációért a backend
-felel, a Python oldal csak az HTTP felületet kezeli. Nincs szükség bleak-re
-semmelyik funkcióhoz — kizárólag a standard library-t használja.
+Ez a modul a **kapcsati (gateway) réteg**: a valódi BLE kommunikációért a
+backend felel, a Python oldal az HTTP felületet kezeli. Nincs szükség
+``bleak``-ra vagy bármelyik más külső csomagra — kizárólag a standard
+library-t használja.
+
+A magas szintű robot-API a :class:`codie.robot.Robot`; ez a modul a
+transzport, amit az kap.
 """
 
 from __future__ import annotations
@@ -15,13 +19,17 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from .robot import Robot
+
+__all__ = ["CodieApiError", "CodieApi"]
+
 
 class CodieApiError(RuntimeError):
     """Hiba a Codie REST API hívások során.
 
     Attributes:
         status: HTTP státuszkód (4xx/5xx), vagy 0 hálózati/összeköttetési hiba esetén.
-        message: az hiba részletes leírása; ``str(error)`` is ezt adja vissza.
+        message: a hiba részletes leírása; ``str(error)`` is ezt adja vissza.
     """
 
     def __init__(self, status: int, message: str) -> None:
@@ -36,11 +44,10 @@ class CodieApi:
     A ``base_url`` és ``address`` alapértékei a ``CODIE_API_URL`` és
     ``CODIE_ADDRESS`` környezeti változókból jönnek — de a **kezdetlegesen
     átadott argumentum győz** felettük (különben egy beállított env-változó
-    elrejtené a hívó szándékát, pl. a teszt mock szerverét). Az osztály
-    **kizárólag** a Python standard library-t használja (urllib + json) — nincs
-    külső függőség.
+    elrejtené a hívó szándékát, pl. a teszt mock szerverét).
 
-    A BLE réteg a backendben van; ez a modul annak a HTTP API-nak a kliense.
+    Az osztály transzport: a :class:`codie.robot.Robot` ezen keresztül szól a
+    robothoz.
     """
 
     def __init__(
@@ -95,6 +102,7 @@ class CodieApi:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", errors="replace")
+            e.close()
             try:
                 detail: Any = json.loads(raw).get("error", raw)
             except (ValueError, AttributeError):
@@ -103,7 +111,36 @@ class CodieApi:
         except urllib.error.URLError as e:
             raise CodieApiError(0, str(e)) from e
 
-    # --- Alapvető REST műveletek ------------------------------------------
+    # --- a transzport felülete ---------------------------------------------
+
+    def command(
+        self,
+        name: str,
+        params: dict[str, Any] | None = None,
+        address: str | None = None,
+    ) -> dict[str, Any]:
+        """Magas szintű parancs küldése a robotnak.
+
+        A ``POST /api/robots/:address/command`` végpontra ``{name, params}`` body-t küld.
+        Ha ``address`` nincs megadva, ``resolve_address()`` választja a
+        csatlakoztatott robotot. A visszatérési érték a backend
+        ``{address, action, …}`` válasza.
+
+        Raises:
+            CodieApiError: HTTP vagy hálózati hiba esetén.
+        """
+        if address is None:
+            address = self.address or self.resolve_address()
+        body: dict[str, Any] = {"name": name}
+        if params is not None:
+            body["params"] = params
+        return self._request(
+            "POST",
+            f"/api/robots/{self._enc(address)}/command",
+            body,
+        )
+
+    # --- a robot kezelése --------------------------------------------------
 
     def health(self) -> dict[str, Any]:
         """``GET /api/health`` → ``{ ok, robots }`` (a csatlakoztatott robotok száma)."""
@@ -118,6 +155,12 @@ class CodieApi:
         """``GET /api/robots/:address`` → egy robot részletes leírása."""
         return self._request("GET", f"/api/robots/{self._enc(address)}")
 
+    def telemetry(self, address: str | None = None) -> dict[str, Any]:
+        """``GET /api/robots/:address/telemetry`` → a legutóbbi szenzoradatok."""
+        if address is None:
+            address = self.address or self.resolve_address()
+        return self._request("GET", f"/api/robots/{self._enc(address)}/telemetry")
+
     def connect(self, address: str) -> dict[str, Any]:
         """``POST /api/robots/:address/connect`` → a csatlakoztatott robot leírása."""
         return self._request("POST", f"/api/robots/{self._enc(address)}/connect")
@@ -126,30 +169,6 @@ class CodieApi:
         """``POST /api/robots/:address/disconnect`` → a leválasztott robot leírása."""
         return self._request(
             "POST", f"/api/robots/{self._enc(address)}/disconnect"
-        )
-
-    def command(
-        self,
-        name: str,
-        params: dict[str, Any] | None = None,
-        address: str | None = None,
-    ) -> dict[str, Any]:
-        """Magas szintű parancs küldése a robotnak.
-
-        A ``POST /api/robots/:address/command`` végpontra ``{name, params}`` body-t küld.
-        Ha ``address`` nincs megadva, ``resolve_address()`` választja a
-        csatlakoztatott robotot. A visszatérési érték a backend
-        ``{address, action, …}`` válasza.
-        """
-        if address is None:
-            address = self.resolve_address()
-        body: dict[str, Any] = {"name": name}
-        if params is not None:
-            body["params"] = params
-        return self._request(
-            "POST",
-            f"/api/robots/{self._enc(address)}/command",
-            body,
         )
 
     def resolve_address(self) -> str:
@@ -167,75 +186,69 @@ class CodieApi:
             "a /api/robots/:address/connect végpontra!",
         )
 
-    # --- Érzékelők (olvasás) ------------------------------------------------
+    # --- a magas szintű API (a Robot réteg delegálásával) -----------------
+
+    @property
+    def robot_api(self) -> Robot:
+        """A :class:`codie.robot.Robot` példány ezen a transzporton."""
+        return Robot(self, self.address)
 
     def status(self) -> dict[str, Any]:
         """A robot teljes pillanatnyi állapota: akku %, szonár mm, fény, vonal."""
-        return self.command("status")["status"]
+        return self.robot_api.status()
 
     def battery(self) -> int:
         """Akkumulátor töltöttségi szint (%)."""
-        return int(self.command("battery")["pct"])
+        return self.robot_api.battery()
 
     def sonar(self) -> int:
         """Szonár-érzékelő értéke (mm-ben)."""
-        return int(self.command("sonar")["mm"])
+        return self.robot_api.sonar()
 
     def light(self) -> int:
         """Fényérzékelő nyers értéke (12 bit, 0 = legvilágosabb)."""
-        return int(self.command("light")["raw"])
+        return self.robot_api.light()
 
     def line(self) -> dict[str, Any]:
-        """Vonalkövető érzékelő: ``{ value, level, onLine }``."""
-        return self.command("line")["line"]
+        """Vonalkövető érzékelő: ``{ value, level, onLine }`` vagy ``{ left, right }``."""
+        return self.robot_api.line()
 
     def mic(self) -> int:
         """Mikrofon nyers értéke."""
-        return int(self.command("mic")["raw"])
-
-    # --- Aktuátorok (írás) --------------------------------------------------
+        return self.robot_api.mic()
 
     def beep(self, ms: int = 500) -> dict[str, Any]:
         """Sípolás megadott időtartamig (ms, max 10000)."""
-        return self.command("beep", {"ms": ms})
+        return self.robot_api.beep(ms)
 
-    def morse(self, text: str) -> dict[str, Any]:
+    def morse(self, text: str, unit_ms: int = 120) -> dict[str, Any]:
         """Szöveg Morse-kódként való kifejezése a csipogón."""
-        return self.command("morse", {"text": text})
+        return self.robot_api.morse(text, unit_ms)
 
     def tune(self, name: str) -> dict[str, Any]:
         """Előre definiált ritmus (dallam) lejátszása."""
-        return self.command("tune", {"name": name})
+        return self.robot_api.tune(name)
 
     def led(self, color: str) -> dict[str, Any]:
         """Minden LED egy színre állítása (pl. 'red', 'white', 'green')."""
-        return self.command("led", {"color": color})
+        return self.robot_api.led(color)
 
-    def led_anim(
-        self,
-        animation: int,
-        color: str = "red",
-    ) -> dict[str, Any]:
-        """Beépített LED-animáció lejátszása.
-
-        Args:
-            animation: animáció ID (0 vagy 1).
-            color: animáció színe (alap: 'red').
-        """
-        return self.command("ledAnim", {"animation": animation, "color": color})
+    def led_anim(self, animation: int, color: str = "red") -> dict[str, Any]:
+        """Beépített LED-animáció lejátszása (0 vagy 1)."""
+        return self.robot_api.led_anim(animation, color)
 
     def forward(self, cm: int = 10) -> dict[str, Any]:
         """Lineáris előrehaladás (cm, 0..200)."""
-        return self.command("forward", {"cm": cm})
+        return self.robot_api.forward(cm)
 
     def backward(self, cm: int = 10) -> dict[str, Any]:
         """Lineáris hátraállás (cm, 0..200)."""
-        return self.command("backward", {"cm": cm})
+        return self.robot_api.backward(cm)
 
     def turn(self, degrees: int) -> dict[str, Any]:
         """Fordulás helyben. Pozitív fok = jobbra, negatív = balra."""
-        return self.command("turn", {"degrees": degrees})
+        return self.robot_api.turn(degrees)
 
     def stop(self) -> dict[str, Any]:
         """Azonnali megállítás minden mozgásban lévő robotnál."""
-        return self.command("stop")
+        return self.robot_api.stop()

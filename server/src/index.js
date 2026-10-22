@@ -15,6 +15,7 @@ import { Server } from 'socket.io';
 import { config, registryOptions } from './config.js';
 import { createApp } from './app.js';
 import { attachRealtime } from './realtime.js';
+import { ScriptRunner } from './scripts.js';
 import { getNoble, ensurePoweredOn } from './ble/noble.js';
 import { RobotRegistry } from './ble/registry.js';
 
@@ -30,18 +31,29 @@ export async function startServer(options = {}) {
       ...registryOptions(settings.ble),
     });
 
-  const app = createApp({ registry, filters: settings.ble });
+  const scripts =
+    options.scripts ||
+    new ScriptRunner({
+      python: settings.scripts.python,
+      scriptDir: settings.scripts.dir,
+      timeoutMs: settings.scripts.timeoutMs,
+    });
+
+  const app = createApp({ registry, filters: settings.ble, scripts });
   const server = createServer(app);
   const io = new Server(server, {
     cors: { origin: true, credentials: true },
   });
-  attachRealtime({ io, registry });
+  attachRealtime({ io, registry, scripts });
 
   await new Promise((resolve) => {
     server.listen(settings.port, settings.host, resolve);
   });
 
   const address = server.address();
+  // A scriptek a backend saját REST API-ján szólnak a robothoz — a cím a
+  // ténylegesen hallgatott port (a 0.0.0.0 nem használható a loopbackon).
+  scripts.setApiUrl(`http://127.0.0.1:${address.port}`);
   console.log(`[codie] szerver listening: http://${settings.host}:${address.port}`);
   console.log(
     `[codie] robot-szűrő: név="${settings.ble.nameFilter}" uuid=${settings.ble.serviceUuids.join(',')} ` +
@@ -67,6 +79,7 @@ export async function startServer(options = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log('\n[codie] leállás...');
+    scripts.stopAll();
     await registry.disconnectAll();
     io.close();
     try {

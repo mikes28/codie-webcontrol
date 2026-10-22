@@ -18,11 +18,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const publicDir = path.join(here, '..', 'public');
 
-export function createApp({ registry, filters = {} }) {
+export function createApp({ registry, filters = {}, scripts = null }) {
   const app = express();
 
   app.use(express.json());
-  app.use('/api', createRobotRouter({ registry, filters }));
+  app.use('/api', createRobotRouter({ registry, filters, scripts }));
   app.use(express.static(publicDir));
 
   // eslint-disable-next-line no-unused-vars -- Express a 4 argumentum alapján ismeri

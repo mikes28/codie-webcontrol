@@ -10,7 +10,7 @@
 
 import { resolveScanDuration } from './ble/registry.js';
 
-export function attachRealtime({ io, registry }) {
+export function attachRealtime({ io, registry, scripts = null }) {
   io.on('connection', (socket) => {
     socket.emit('robots', { robots: registry.list() });
 
@@ -67,6 +67,24 @@ export function attachRealtime({ io, registry }) {
         socket.emit('error', { message: error.message });
       }
     });
+
+    // a robot-scriptek indítása és leállítása (a Python kommunikációs script)
+    socket.on('script:start', (payload = {}) => {
+      if (!scripts) {
+        socket.emit('error', { message: 'A script-futtatás nincs beállítva.' });
+        return;
+      }
+      try {
+        scripts.start(payload.address, payload.name);
+      } catch (error) {
+        socket.emit('error', { message: error.message });
+      }
+    });
+
+    socket.on('script:stop', (payload = {}) => {
+      if (!scripts) return;
+      scripts.stop(payload.address);
+    });
   });
 
   // A registry eseményei -> minden csatlakozott kliens.
@@ -78,8 +96,12 @@ export function attachRealtime({ io, registry }) {
   // a BLE réteg hibái (hibás csomag, megszakadt kapcsolat) — ezeket a felületnek
   // is látnia kell, nem csak a szerver naplójában
   registry.on('robot-error', (payload) => io.emit('robot-error', payload));
-  // a mikrofon értékei (a felület szintmérője)
+  // A mikrofon értékei (a felület szintmérője)
   registry.on('mic', (payload) => io.emit('mic', payload));
+  // A robot-scriptek eseményei (a Python kommunikációs script stdoutja)
+  if (scripts) {
+    scripts.on('event', (payload) => io.emit('script:event', payload));
+  }
 
   return { io };
 }

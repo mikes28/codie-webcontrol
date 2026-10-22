@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnvFile } from 'dotenv';
 
 import { SERVICE_UUID } from './ble/protocol.js';
+import { defaultScriptDir } from './scripts.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -119,6 +120,19 @@ export function loadConfig(env = process.env) {
 
     /** A szerver indulásakor automatikusan csatlakozandó robotok címei. */
     autoConnect: list(env, 'CODIE_AUTO_CONNECT'),
+
+    /**
+     * A robot-scriptek futtatása — a weboldal Python kommunikációs scriptje
+     * (`python/codie_comm.py`) indítja el a scripteket.
+     */
+    scripts: {
+      /** A Python értelmező (a `python3` a rendszerben). */
+      python: env.CODIE_PYTHON || 'python3',
+      /** A scriptek mappája. */
+      dir: env.CODIE_SCRIPT_DIR || defaultScriptDir,
+      /** Egy futás időhatára (ms) — a Python oldal ezzel állítja meg a robotot. */
+      timeoutMs: num(env, 'CODIE_SCRIPT_TIMEOUT_MS', 120000),
+    },
   };
 }
 

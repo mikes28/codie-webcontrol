@@ -29,7 +29,3 @@ RHYTHMS: dict[str, list[tuple[int, int]]] = {
     # Visszaszámlálás: három rövid, egy hosszú
     "countdown": [(120, 700), (120, 700), (120, 700), (500, 0)],
 }
-
-
-def names() -> list[str]:
-    return sorted(RHYTHMS)

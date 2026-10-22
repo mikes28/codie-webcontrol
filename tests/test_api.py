@@ -191,10 +191,10 @@ class CodieApiTest(unittest.TestCase):
 
     def test_led_anim_sends_the_animation_and_the_color(self) -> None:
         self.api.led_anim(1, "blue")
-        self.assertEqual(
-            FakeBackend.calls[0]["body"],
-            {"name": "ledAnim", "params": {"animation": 1, "color": "blue"}},
-        )
+        body = FakeBackend.calls[0]["body"]
+        self.assertEqual(body["name"], "ledAnim")
+        self.assertEqual(body["params"]["animation"], 1)
+        self.assertEqual(body["params"]["color"], "blue")
 
     # --- a cím kiválasztása -----------------------------------------------
 

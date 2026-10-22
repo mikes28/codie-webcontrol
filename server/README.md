@@ -4,8 +4,14 @@ Express.js + socket.io backend, ami a Codie oktatórobotokat BLE-en (BlueZ) vez�
 Több robotot is kezel egyszerre, és a keresés **csak a robotokat** mutatja — a környezet
 többi BLE eszköze (fehallgatók, telefonok, fitnesz-karikák) kiszűrve.
 
-A wire-protokoll a repo Python kliensének (`codie/protocol.py`) 1:1 JavaScript portja;
+A wire-protokoll a repo Python kliensének (`codie/wire.py` a routingos, 
+`codie/wire_norrouting.py` a routing nélküli generációhoz) 1:1 JavaScript portja;
 a `test/parity.test.js` bájtra bájtra összehasonlítja a kettőt.
+
+A **robot-scripteket** a backend a repo Python kommunikációs scriptjével futtatja
+(`python/codie_comm.py`) — a scriptek a `codie` csomag API-ját használják, és a
+backend REST API-ján keresztül szólnak a robothoz (a BLE rádiót egyetlen kliens,
+a backend birtokolja).
 
 ## Telepítés
 
@@ -202,6 +208,41 @@ Hibaválaszok (a felület ezeket kiírja — nincs hamis „OK”):
 > `{ left, right }` (12 bites értékek), a routing nélküliben
 > `{ value, level, onLine }` (egyetlen fix-pontos érték, a codiejs skálája).
 
+## Robot-scriptek (a Python kommunikációs script)
+
+A felület **Scriptek** csoportja Python robot-scripteket indít. A backend a
+`python/codie_comm.py` futtatót indítja el, az a `codie` csomag API-jával hajtja végre
+a lépéseket (a backend REST API-ján át), és JSON-soros eseményeket ír a stdout-ra —
+ezek mennek tovább a böngészőnek.
+
+| Végpont | Mit csinál |
+|---|---|
+| `GET /api/scripts` | a futtatható scriptek listája (`{name, title, description}`) |
+| `GET /api/firmware` | a firmware interfész-regisztere — a robot valódi parancsfelülete (16 interfész, opok, egységek, quirkek) |
+| `POST /api/robots/:address/script` | script indítása: `{"name": "square"}` — 409, ha már fut egy |
+| `GET /api/robots/:address/script` | a futó script állapota (`null`, ha nincs) |
+| `DELETE /api/robots/:address/script` | a futó script leállítása (SIGTERM) |
+
+A scriptek `server/python/scripts/` alatt vannak, egy-egy `run(ctx)` függvénnyel:
+
+```python
+def run(ctx):
+    ctx.log("indulok")
+    ctx.robot.forward(20)
+    ctx.robot.turn(90)
+```
+
+A `ctx` a robot API-t (`ctx.robot`), a naplót (`ctx.log`) és a megszakítható
+várakozást (`ctx.wait`) adja. A futás végén — és hiba esetén is — a robot megáll,
+a futásnak időhatára van (`CODIE_SCRIPT_TIMEOUT_MS`).
+
+A scriptek kézzel is futtathatók:
+
+```bash
+python3 python/codie_comm.py --list
+python3 python/codie_comm.py --address 00:07:80:66:F0:DA --api http://127.0.0.1:3000 --script square
+```
+
 ## socket.io
 
 A szerver a registry eseményeit minden kliensnek továbbítja:
@@ -216,12 +257,15 @@ A szerver a registry eseményeit minden kliensnek továbbítja:
 | szerver → kliens | `error` | `{ message }` — a parancs hibája |
 | szerver → kliens | `robot-error` | `{ address, message }` — a BLE réteg hibája (megszakadt kapcsolat, hibás csomag) |
 | szerver → kliens | `mic` | `{ address, raw, level, peak }` — a mikrofon erősségi értéke |
+| szerver → kliens | `script:event` | `{ address, event, … }` — a Python script eseményei (`start`, `step`, `log`, `done`, `stopped`, `error`, `exit`) |
 | kliens → szerver | `scan:request` | `{ durationMs? }` |
 | kliens → szerver | `robot:connect` | `{ address }` |
 | kliens → szerver | `robot:disconnect` | `{ address }` |
 | kliens → szerver | `robot:command` | `{ address, name, params }` |
 | kliens → szerver | `mic:start` | `{ address }` — a mikrofon figyelésének indítása |
 | kliens → szerver | `mic:stop` | `{ address }` — a mikrofon figyelésének leállítása |
+| kliens → szerver | `script:start` | `{ address, name }` — robot-script indítása |
+| kliens → szerver | `script:stop` | `{ address }` — a futó script leállítása |
 
 ## Felépítés
 
@@ -231,16 +275,20 @@ src/
   app.js            Express alkalmazás (injektálható registry-vel)
   config.js         környezeti változók + .env betöltés
   commands.js       magas szintű parancsok (a REST/CLI/konzol közös rétege)
+  scripts.js        a Python robot-scriptek indítása és eseményeinek továbbítása
   morse.js, tunes.js, cli.js
   ble/
-    protocol.js     wire-protokoll (a Python protocol.py portja)
-    protocol-norrouting.js  a routing nélküli generáció protokollja (a codiejs portja)
+    protocol.js     wire-protokoll (a Python wire.py portja)
+    protocol-norrouting.js  a routing nélküli generáció protokollja (a Python wire_norrouting.py portja)
     client.js       CodieClient — egy robot BLE-kapcsolata (mindkét generáció)
     scanner.js      robot-szűrő + scan (a nem-robot eszközöket kiszűri)
     registry.js     több robot kezelése
     noble.js        BlueZ D-Bus binding példány + cím-formázás
   routes/robots.js  REST API
   realtime.js       socket.io események
+python/
+  codie_comm.py     a weboldal Python kommunikációs scriptje — a robot-scriptek futtatója
+  scripts/          a robot-scriptek (négyzetes kör, őrjárat, vonalkereső, üdvözölés)
 public/             a csomagolt webes felület
 scripts/            scan.js / control.js / console.js
 test/               unit tesztek + Python paritás + API teszt
@@ -261,3 +309,4 @@ npm test
 - `e2e.test.js` — végponttól végpontig a hamis robottal (scan → connect → parancs → REST → socket)
 - `api.test.js` — a REST API hamis registry-vel
 - `scripts.test.js` — a scriptek smoke-tesztje (a modulok betöltődnek)
+- `script-runner.test.js` — a Python scriptek futtatása (a valódi engine, hamis backenddel)

@@ -1,10 +1,10 @@
 /**
  * Paritás: a JS port bájtra bájtra megegyezik a Python referencia-implementációval.
  *
- * A `parity_probe.py` a repo Python `codie/protocol.py`, `morse.py` és
- * `tunes.py` moduljait futtatja le, és JSON-ban adja vissza a frame-eket,
- * színeket, Morse-ritmusokat. Ha a python3 nem elérhető, a teszt kimarad
- * (a JS oldali unit tesztek akkor is futnak).
+ * A `parity_probe.py` a repo Python `codie/wire.py`, `codie/wire_norrouting.py`,
+ * `morse.py` és `tunes.py` moduljait futtatja le, és JSON-ban adja vissza a
+ * frame-eket, színeket, Morse-ritmusokat. Ha a python3 nem elérhető, a teszt
+ * kimarad (a JS oldali unit tesztek akkor is futnak).
  */
 
 import { test } from 'node:test';
@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as p from '../src/ble/protocol.js';
+import * as np from '../src/ble/protocol-norrouting.js';
 import { textToRhythm } from '../src/morse.js';
 import { RHYTHMS } from '../src/tunes.js';
 
@@ -99,4 +100,57 @@ test('a JS port megegyezik a Python wire-protokollal', { skip: reference ? false
 
   assert.equal(p.RESPONSE_ARG_POS, reference.responseArgPos);
   assert.equal(p.MAX_BEEP_MS, reference.maxBeepMs);
+});
+
+test('a routing nélküli JS port is megegyezik a Python wire-protokollal', { skip: reference ? false : 'python3 hiányzik' }, () => {
+  const nr = reference.noRouting;
+
+  const frames = [
+    np.buildFrame(np.CMD_MOTOR_BOTH, [40, 40], 1).toString('hex'),
+    np.buildFrame(np.CMD_MOVE, [...np.u16(300), 30, 30], 2).toString('hex'),
+    np.buildFrame(np.CMD_TURN, [...np.u16(90), 40], 3).toString('hex'),
+    np.buildFrame(np.CMD_BEEP, [100, ...np.u16(2000), ...np.u16(500)], 4).toString('hex'),
+    np.buildFrame(np.CMD_SET_COLOR, [10, 20, 30], 5).toString('hex'),
+    np.buildFrame(np.CMD_SET_ANIMATION, [1, 10, 20, 30, 40], 6).toString('hex'),
+    np.buildFrame(np.QUERY_BATTERY, [], 7).toString('hex'),
+    np.buildFrame(np.QUERY_DISTANCE, [], 8).toString('hex'),
+    np.buildFrame(np.QUERY_SOUND, [], 9).toString('hex'),
+    np.buildFrame(np.QUERY_LIGHT, [], 10).toString('hex'),
+    np.buildFrame(np.QUERY_LINE, [], 11).toString('hex'),
+  ];
+  assert.deepEqual(frames, nr.frames, 'a frame-ek bájtra bájtra egyeznek');
+
+  const replies = [];
+  for (const payload of [[0x61], [0x15, 0x00], [0x05, 0x07, 0x00, 0x00]]) {
+    const decoded = np.decodeReply(Buffer.from([0x01, 0x00, ...payload]));
+    replies.push({
+      seq: decoded.seq,
+      value: decoded.value,
+      payload: decoded.payload.toString('hex'),
+    });
+  }
+  assert.deepEqual(replies, nr.replies, 'a válasz dekódolása egyezik');
+
+  const line = np.decodeLine(Buffer.from([0x05, 0x07, 0x00, 0x00]));
+  assert.deepEqual(
+    { value: line.value, level: line.level, onLine: line.onLine },
+    nr.line,
+    'a vonalérték dekódolása egyezik',
+  );
+
+  const colors = Object.fromEntries(
+    Object.keys(p.COLORS_RGB).map((name) => [name, np.colorParams(name)]),
+  );
+  assert.deepEqual(colors, nr.colors, 'a színek paraméterei egyeznek');
+
+  assert.deepEqual(
+    [np.normalizeDistance(0), np.normalizeDistance(21), np.normalizeDistance(25), np.normalizeDistance(210), np.normalizeDistance(1234)],
+    nr.normalized.distance,
+    'a távolság normalizálása egyezik',
+  );
+  assert.deepEqual(
+    [np.normalizeBattery(0), np.normalizeBattery(97), np.normalizeBattery(100), np.normalizeBattery(120)],
+    nr.normalized.battery,
+    'az akku normalizálása egyezik',
+  );
 });

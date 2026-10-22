@@ -1,4 +1,4 @@
-/** A wire-protokoll unit tesztje (a Python `tests/test_protocol.py` tükörképe). */
+/** A wire-protokoll unit tesztje (a Python `tests/test_wire.py` tükörképe). */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

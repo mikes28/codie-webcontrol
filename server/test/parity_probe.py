@@ -1,6 +1,6 @@
 """Paritás-probe: a Python referencia-implementáció kimenete JSON-ban.
 
-A `server/test/parity.test.js` ezt hasonlítja össze a JS porttal — bájtra
+A `server/test/parity.test.js` ezt hasonlítja össze a JS portokkal — bájtra
 bájtra, hogy a port ne csússzon el a Python wire-protokolltól.
 
     python3 test/parity_probe.py
@@ -8,26 +8,16 @@ bájtra, hogy a port ne csússzon el a Python wire-protokolltól.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # a repo gyökere
+sys.path.insert(0, str(ROOT))
 
-
-def _load(name: str, relative: str):
-    path = ROOT / relative
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-p = _load("codie_protocol", "codie/protocol.py")
-morse = _load("codie_morse", "codie/morse.py")
-tunes = _load("codie_tunes", "codie/tunes.py")
+from codie import morse, tunes  # noqa: E402
+from codie import wire as p  # noqa: E402
+from codie import wire_norrouting as np  # noqa: E402
 
 p.reset_seq()
 
@@ -79,6 +69,43 @@ if decoded is not None:
 
 short_decode = p.decode_response(bytes([0x10, 0x00]))
 
+# --- a routing nélküli generáció frame-jei és dekódolásai ---
+
+nr_frames = [
+    np.build_frame(np.CMD_MOTOR_BOTH, bytes([40, 40]), seq=1).hex(),
+    np.build_frame(np.CMD_MOVE, np.u16(300) + bytes([30, 30]), seq=2).hex(),
+    np.build_frame(np.CMD_TURN, np.u16(90) + bytes([40]), seq=3).hex(),
+    np.build_frame(np.CMD_BEEP, bytes([100]) + np.u16(2000) + np.u16(500), seq=4).hex(),
+    np.build_frame(np.CMD_SET_COLOR, bytes([10, 20, 30]), seq=5).hex(),
+    np.build_frame(np.CMD_SET_ANIMATION, bytes([1, 10, 20, 30, 40]), seq=6).hex(),
+    np.build_frame(np.QUERY_BATTERY, seq=7).hex(),
+    np.build_frame(np.QUERY_DISTANCE, seq=8).hex(),
+    np.build_frame(np.QUERY_SOUND, seq=9).hex(),
+    np.build_frame(np.QUERY_LIGHT, seq=10).hex(),
+    np.build_frame(np.QUERY_LINE, seq=11).hex(),
+]
+
+nr_replies = []
+for payload in (bytes([0x61]), bytes([0x15, 0x00]), bytes([0x05, 0x07, 0x00, 0x00])):
+    reply = np.decode_reply(bytes([0x01, 0x00]) + payload)
+    nr_replies.append(
+        {
+            "seq": reply["seq"],
+            "value": reply["value"],
+            "payload": reply["payload"].hex(),
+        }
+    )
+
+nr_line = np.decode_line(bytes([0x05, 0x07, 0x00, 0x00]))
+nr_line_out = {"value": nr_line["value"], "level": nr_line["level"], "onLine": nr_line["onLine"]}
+
+nr_colors = {name: list(np.color_params(name)) for name in p.COLORS_RGB}
+
+nr_normalized = {
+    "distance": [np.normalize_distance(raw) for raw in (0, 21, 25, 210, 1234)],
+    "battery": [np.normalize_battery(raw) for raw in (0, 97, 100, 120)],
+}
+
 # --- Morse + ritmusok ---
 
 morse_out = {
@@ -105,6 +132,13 @@ print(
             ],
             "responseArgPos": p.RESPONSE_ARG_POS,
             "maxBeepMs": p.MAX_BEEP_MS,
+            "noRouting": {
+                "frames": nr_frames,
+                "replies": nr_replies,
+                "line": nr_line_out,
+                "colors": nr_colors,
+                "normalized": nr_normalized,
+            },
         },
         indent=2,
     )

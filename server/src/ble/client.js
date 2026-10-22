@@ -8,7 +8,7 @@
  * | service | `52af0001-978a-628d-c845-0a104ca2b8dd` | `d46e7e53-ba2f-4044-ade9-f85ead45f458` |
  * | frame | `INFO(1) SEQ(2) CMD(2) ARGLEN(2) ARG…` | `SEQ(2) CMD(2) ARG…` |
  * | válasz | notify `52af0003` | két külön reply-karakterisztika |
- * | forrás | a repo Python `codie/protocol.py` | [zbettenbuk/codiejs](https://github.com/zbettenbuk/codiejs) |
+ * | forrás | a repo Python `codie/wire.py` | a repo Python `codie/wire_norrouting.py` (a [codiejs](https://github.com/zbettenbuk/codiejs) protokollja) |
  *
  * A kliens **automatikusan felismeri** a generációt a GATT-elrendezésből, és a
  * parancsréteg (`src/commands.js`) ugyanazt a parancskészletet látja mindkettőnél —
@@ -735,24 +735,6 @@ export class CodieClient extends EventEmitter {
     }
   }
 
-  /**
-   * A LED-szín átvitele a routing nélküli firmware skálájára.
-   * A codiejs szerint: hue 0-360 (×0,7 → 0-252), sat/val 0-100 (×2,55 → 0-255).
-   * A mi színtáblánk HSV 0-255, ezért onnan visszaszámolunk.
-   *
-   * A telítettségnél és az értéknél `Math.round` kell (nem `floor`): a
-   * 100 × 2,55 float-értéke 254,99999999999997, így a floor 254-et adna
-   * a helyes 255 helyett (a `red` szín sat/val értéke pont 255).
-   */
-  _colorParams(color) {
-    const [h, s, v] = p.colorHsv(color);
-    return [
-      Math.floor((h / 255) * 360 * 0.7) & 0xff,
-      Math.round((s / 255) * 100 * 2.55) & 0xff,
-      Math.round((v / 255) * 100 * 2.55) & 0xff,
-    ];
-  }
-
   // --- aktuátorok (generációfüggetlen API) -----------------------------
 
   /**
@@ -824,7 +806,7 @@ export class CodieClient extends EventEmitter {
 
   async ledAll(color = 'green') {
     if (this._variant === 'no-routing') {
-      return this._sendAction(np.CMD_SET_COLOR, this._colorParams(color));
+      return this._sendAction(np.CMD_SET_COLOR, np.colorParams(color));
     }
     return this.send(p.CMD_LED_SET_COLOR, p.ledAllArgs(color));
   }
@@ -869,7 +851,7 @@ export class CodieClient extends EventEmitter {
       error.status = 501; // Not Implemented: ezen a generáción nincs ismert megvalósítás
       throw error;
     }
-    const [hue, sat] = this._colorParams(color);
+    const [hue, sat] = np.colorParams(color);
     return this._sendAction(np.CMD_SET_ANIMATION, [
       animation & 0xff,
       hue,

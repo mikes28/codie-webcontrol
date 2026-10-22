@@ -32,6 +32,11 @@ const els = {
   micHint: document.getElementById('mic-hint'),
   morseText: document.getElementById('morse-text'),
   ledColor: document.getElementById('led-color'),
+  scriptSelect: document.getElementById('script-select'),
+  scriptRun: document.getElementById('script-run'),
+  scriptStop: document.getElementById('script-stop'),
+  scriptHint: document.getElementById('script-hint'),
+  scriptLog: document.getElementById('script-log'),
 };
 
 /** A szerver által támogatott generációk — a `/api/config` egészíti ki. */
@@ -80,6 +85,97 @@ async function loadConfig() {
 function normalizeRobot(robot) {
   return { ...robot, variant: robot.variant ?? null };
 }
+
+/* --- robot-scriptek (a weboldal Python kommunikációs scriptje) --------- */
+
+/** A scriptek listájának letöltése a szervertől. */
+async function loadScripts() {
+  if (!els.scriptSelect) return;
+  try {
+    const res = await fetch('/api/scripts');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { scripts = [] } = await res.json();
+    els.scriptSelect.innerHTML = '';
+    for (const script of scripts) {
+      const option = document.createElement('option');
+      option.value = script.name;
+      option.textContent = script.title || script.name;
+      if (script.description) option.title = script.description;
+      els.scriptSelect.append(option);
+    }
+    els.scriptHint.textContent = scripts.length
+      ? `${scripts.length} script érhető el.`
+      : 'Nincs elérhető script.';
+    els.scriptRun.disabled = scripts.length === 0;
+  } catch (error) {
+    els.scriptHint.textContent = `A scriptek listája nem tölthető: ${error.message}`;
+    els.scriptRun.disabled = true;
+  }
+}
+
+/** Egy sor hozzáadása a script naplójához. */
+function appendScriptLog(text) {
+  if (!els.scriptLog) return;
+  els.scriptLog.textContent += `${text}\n`;
+  els.scriptLog.scrollTop = els.scriptLog.scrollHeight;
+}
+
+/** A futó script állapotának megjelenítése. */
+function setScriptState(running) {
+  if (els.scriptRun) els.scriptRun.disabled = running;
+  if (els.scriptStop) els.scriptStop.disabled = !running;
+}
+
+els.scriptRun?.addEventListener('click', () => {
+  if (!activeAddress) {
+    setStatus('Válassz ki egy robotot előbb.', true);
+    return;
+  }
+  const name = els.scriptSelect.value;
+  if (!name) {
+    setStatus('Nincs kiválasztott script.', true);
+    return;
+  }
+  els.scriptLog.textContent = '';
+  setScriptState(true);
+  setStatus(`A(z) ${name} script indítása…`);
+  socket.emit('script:start', { address: activeAddress, name });
+});
+
+els.scriptStop?.addEventListener('click', () => {
+  if (!activeAddress) return;
+  setStatus('A script leállítása…');
+  socket.emit('script:stop', { address: activeAddress });
+});
+
+socket.on('script:event', (payload) => {
+  if (!payload || payload.address !== activeAddress) return;
+  const event = payload.event;
+  if (event === 'start') {
+    appendScriptLog(`▶ ${payload.script} elindult`);
+  } else if (event === 'step') {
+    const params = Object.entries(payload.params || {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join(' ');
+    appendScriptLog(`· ${payload.action} ${params}`.trimEnd());
+  } else if (event === 'log') {
+    appendScriptLog(`  ${payload.message}`);
+  } else if (event === 'done') {
+    appendScriptLog(`✔ kész (${payload.steps} lépés)`);
+    setScriptState(false);
+    setStatus('A script lefutott.');
+  } else if (event === 'stopped') {
+    appendScriptLog(`■ megszakítva (${payload.reason || 'kérés'})`);
+    setScriptState(false);
+    setStatus('A script megállt.');
+  } else if (event === 'error') {
+    appendScriptLog(`✖ ${payload.message || 'ismeretlen hiba'}`);
+    setScriptState(false);
+    setStatus(payload.message || 'A script hibázott.', true);
+  } else if (event === 'exit') {
+    setScriptState(false);
+  }
+});
 
 /**
  * A robotok listájának frissítése a kapottakkal.
@@ -443,3 +539,4 @@ socket.on('robot-error', (payload) => {
 setInterval(renderTelemetryAge, 1000);
 
 loadConfig();
+loadScripts();

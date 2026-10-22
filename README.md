@@ -5,23 +5,34 @@
 *A Codie oktatórobot és szenzorai (kép: [indiegogo](https://www.indiegogo.com/en/projects/adamlipecz/codie-cute-personal-robot-that-makes-coding-fun)).*
 
 A [csorbazoli/CodieController](https://github.com/csorbazoli/CodieController) 2016-os,
-félbehagyott Java PoC-jából visszafejtett wire-protokoll tiszta Python implementációja.
+félbehagyott Java PoC-jából visszafejtett wire-protokoll, **a robot firmware-jének
+visszafejtésével** kiegészítve: a `codie/console.py` a firmware saját, szöveges
+parancsnyelvét (a 16 interfészt és az opok pontos szemantikájával) portolja Pythonba.
 A **Codie** oktatórobotot Bluetooth Low Energy-n (BlueZ) vezérli a **Node.js web-backend**
 (`server/`) révén — az a láncszem, ami 2019-ben hiányzott (PC-oldali BLE út), Linuxon triviális.
-A Python csomag (`codie/`) két dolgot ad: a **protokoll-referenciát** (`protocol`, `morse`,
-`tunes`) és egy **szinkron REST klienst** (`api`), ami a backend HTTP felületén keresztül
-szól a robotnak. A BLE réteg a backendben van.
+A Python csomag (`codie/`) három dolgot ad: a **protokoll-referenciát** (`console`, `wire`,
+`wire_norrouting`, `morse`, `tunes`), a **magas szintű robot-API-t** (`robot`) és a
+**szinkron REST klienst** (`api`), ami a backend HTTP felületén keresztül szól a robotnak.
+A BLE réteg a backendben van.
+
+A weboldalnak van egy **Python kommunikációs scriptje** (`server/python/codie_comm.py`): a
+backend elindítja, a script a `codie` API-jával hajtja végre a lépéseket, és a felületen
+látni lehet minden lépését. A scriptek maguk Python-fájlok (`server/python/scripts/`).
 
 A protokoll- és hardverrészletek a [CLAUDE.md](CLAUDE.md)-ben; a fejlődési napló a
 [MEMORY.md](MEMORY.md)-ben; a verziónkénti változások a [CHANGELOG.md](CHANGELOG.md)-ben.
-Aktuális verzió: **v0.5.0** (a Python BLE réteg (bleak `CodieClient`) törölve; a Python oldal
-minta a JS backend REST API-jára épül).
+Aktuális verzió: **v0.7.0** (a Python a visszafejtett firmware alapján újraírva; a weboldal
+Python script-futtatója).
 
 ## Projekt struktúra
 
 ```
 codie/            Python package
-  protocol.py     wire-protokoll (frame encode/decode, parancs-ID-k, szín-HSV 0-255)
+  console.py      a firmware parancsnyelve (get|set|call <interface> <op>) + az
+                  interfész-regiszter: mit tud a robot, milyen egységben válaszol
+  wire.py         a routingos generáció BLE frame-formátuma (paritás-referencia)
+  wire_norrouting.py  a routing nélküli generáció frame-formátuma (paritás-referencia)
+  robot.py        a robot magas szintű API-ja bármilyen transzport fölött
   api.py          CodieApi — szinkron REST kliens a JS backendhez (standard library)
   tools.py        9 async agent-tool (mcp_codie_*, nincs mcp import, CodieApi-n keresztül)
   mcp_server.py   vékony FastMCP burkolat (tools.py regisztrálása, stdio)
@@ -29,21 +40,26 @@ codie/            Python package
   tunes.py        beépített ritmusminták (paritás-referencia)
 scripts/
   fft_pitch.py    a csipogó domináns frekvenciája (offline FFT, nem BLE)
-tests/            protokoll + Morse (test_protocol.py, test_morse.py) — 30-ish unit teszt
+tests/            unit tesztek (console, wire, robot, api, tools, script engine)
 server/           Express + socket.io web-backend (JS), több robot, robot-szűrő
   src/ble/        protocol.js, protocol-norrouting.js, client.js, scanner.js,
                   registry.js, noble.js (noble/BlueZ)
+  src/scripts.js  a Python scriptek indítása és eseményeinek továbbítása
+  python/         a weboldal Python kommunikációs scriptje
+    codie_comm.py   a scriptek futtatója (JSON-soros események, biztonsági határok)
+    scripts/        a robot-scriptek (négyzetes kör, őrjárat, vonalkereső, üdvözölés)
   scripts/        scan.js, control.js, console.js
   public/         a webes felület
-  test/           105 unit + e2e teszt (protokoll, paritás, API, scriptek)
+  test/           unit + e2e tesztek (protokoll, paritás, API, scriptek)
 docs/comApi.h     hivatalos Codie BLE API header (referencia)
 ```
 
 > **Két Codie-generáció van**, mindet a **JS web-backend** (`server/`) kezeli (a GATTelrendezésből
 > automatikusan felismeri, melyikkel van szó). A Python csomag **nem** beszél BLE-t közvetlenül:
-> a `codie/protocol.py`/`morse.py`/`tunes.py` a JS port **bájtra bájt** egyezéséért felelnek
-> (a `server/test/parity.test.js` ellenőrzi), a `codie/api.py` pedig a backend REST APIn keresztül
-> vezérelti a robotot. A két generáció közötti különbség a frame-formátum és a parancs-ID-k:
+> a `codie/wire.py`/`wire_norrouting.py`/`morse.py`/`tunes.py` a JS port **bájtra bájt** egyezéséért
+> felelnek (a `server/test/parity.test.js` ellenőrzi), a `codie/api.py` pedig a backend REST APIn
+> keresztül vezérelti a robotot. A két generáció közötti különbség a frame-formátum és a
+> parancs-ID-k:
 
 ## Teszt eredmények
 
@@ -147,8 +163,49 @@ node scripts/console.js                        # interaktív konzol
 
 Részletek (API, socket-események, szűrők, konfig): [`server/README.md`](server/README.md).
 
-> A JS wire-protokoll a Python `codie/protocol.py` 1:1 portja — a `server/test/parity.test.js`
-> bájtra bájtra ellenőrzi, hogy a kettő ne csússzon el.
+> A JS wire-protokoll a Python `codie/wire.py` (routingos) és `codie/wire_norrouting.py`
+> (routing nélküli) 1:1 portja — a `server/test/parity.test.js` bájtra bájtra ellenőrzi,
+> hogy a kettő ne csússzon el.
+
+## Robot-scriptek — a weboldal Python kommunikációs scriptje
+
+A felület **Scriptek** csoportja robot-scripteket indít: ezek Python-fájlok, amelyek a
+`codie` csomag magas szintű API-ját használják. A backend a `server/python/codie_comm.py`
+futtatót indítja el, az a backend REST API-ján keresztül szól a robothoz, és minden
+lépésről JSON eseményt küld — a felület ezeket élő naplóban mutatja.
+
+Egy script egy `run(ctx)` függvény:
+
+```python
+# title: Négyzetes kör
+# description: Négy 20 cm-es oldal 90°-os fordulókkal.
+
+def run(ctx):
+    for _ in range(4):
+        ctx.robot.forward(20)
+        ctx.robot.turn(90)
+    ctx.log("kész")
+```
+
+A `ctx` három dolgot ad: `ctx.robot` (a robot API), `ctx.log(üzenet)` (a naplóba) és
+`ctx.wait(mp)` (megszakítható várakozás). A mozgás mindig **véges**, a futás végén a
+robot megáll, hibánál is, és egy futásnak van időhatára (`CODIE_SCRIPT_TIMEOUT_MS`).
+
+A scriptek kézzel is futtathatók (a backend nélkül is, ha az útvonalat megadjuk):
+
+```bash
+python3 server/python/codie_comm.py --list
+python3 server/python/codie_comm.py --address 00:07:80:66:F0:DA \
+    --api http://127.0.0.1:3000 --script square
+```
+
+A REST API: `GET /api/scripts` (a scriptek listája), `POST /api/robots/:address/script`
+(`{"name": "square"}`), `GET` és `DELETE /api/robots/:address/script` (állapot, leállítás).
+A socketon a `script:event` esemény viszi az eseményeket a böngészőnek.
+
+A `GET /api/firmware` végpont a **visszafejtett firmware** parancsfelületét adja vissza
+(a 16 interfész az opjaival, argumentumaival, egységeivel és quirkjeivel) — ezt a
+`codie/console.py` adja, ugyanaz a referencia, amire a Python port épül.
 
 ## Hang: ritmus és Morse
 

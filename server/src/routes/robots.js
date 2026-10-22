@@ -35,7 +35,7 @@ function describeRobot(robot) {
   return { ...robot, variant: robot.variant ?? null };
 }
 
-export function createRobotRouter({ registry, filters = {} }) {
+export function createRobotRouter({ registry, filters = {}, scripts = null }) {
   const router = Router();
 
   router.get('/health', (req, res) => {
@@ -126,6 +126,52 @@ export function createRobotRouter({ registry, filters = {} }) {
       return res.json(describeRobot(robot));
     }),
   );
+
+  // --- robot-scriptek (a weboldal Python kommunikációs scriptje) ---------
+
+  /** A futtatható robot-scriptek listája. */
+  router.get(
+    '/scripts',
+    asyncRoute(async (req, res) => {
+      if (!scripts) return res.status(503).json({ error: 'A script-futtatás nincs beállítva.' });
+      const items = await scripts.list();
+      res.json({ scripts: items });
+    }),
+  );
+
+  /** A firmware interfész-regisztere — a robot valódi parancsfelülete. */
+  router.get(
+    '/firmware',
+    asyncRoute(async (req, res) => {
+      if (!scripts) return res.status(503).json({ error: 'A script-futtatás nincs beállítva.' });
+      res.json(await scripts.firmware());
+    }),
+  );
+
+  /** A futó script állapota egy adott roboton. */
+  router.get('/robots/:address/script', (req, res) => {
+    const status = scripts ? scripts.status(req.params.address) : null;
+    res.json({ address: req.params.address, script: status });
+  });
+
+  /** Script indítása: `{ name: "square" }`. */
+  router.post(
+    '/robots/:address/script',
+    asyncRoute(async (req, res) => {
+      if (!scripts) return res.status(503).json({ error: 'A script-futtatás nincs beállítva.' });
+      const name = String(req.body?.name ?? '').trim();
+      if (!name) return res.status(400).json({ error: 'A script neve hiányzik.' });
+      const started = scripts.start(req.params.address, name);
+      res.json(started);
+    }),
+  );
+
+  /** A futó script leállítása. */
+  router.delete('/robots/:address/script', (req, res) => {
+    if (!scripts) return res.status(503).json({ error: 'A script-futtatás nincs beállítva.' });
+    const stopped = scripts.stop(req.params.address);
+    res.json({ address: req.params.address, stopped });
+  });
 
   return router;
 }
